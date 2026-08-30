@@ -33,6 +33,7 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+const { requireSecureServerUrl } = require('./transportSecurity');
 
 /*
  * These files are part of the ClipCascade project.
@@ -109,7 +110,7 @@ export default function App() {
   //data hook
   const [data, setData] = useState({
     cipher_enabled: 'true',
-    server_url: 'http://localhost:8080',
+    server_url: 'https://localhost:8080',
     websocket_url: '',
     username: '',
     hashed_password: '',
@@ -430,6 +431,8 @@ export default function App() {
   // Login
   const login = async (data_s, password_s) => {
     try {
+      data_s.server_url = requireSecureServerUrl(data_s.server_url);
+
       // 1. Fetch the login page to get CSRF token and initial cookie
       const loginPageResponse = await fetchTimeout(
         data_s.server_url + LOGIN_URL,
@@ -582,7 +585,10 @@ export default function App() {
               data_s,
             ];
           }
-          data_s.hashed_password = hashResult[1].toString('base64');
+          await NativeBridgeModule.storeE2EKey(
+            hashResult[1].toString('base64'),
+          );
+          data_s.hashed_password = '';
         }
 
         return [true, 'Login successful: ' + loginResponse.status, data_s];
@@ -618,6 +624,7 @@ export default function App() {
     try {
       setWsPageMessage('⌛ Please wait...');
       await setDataInAsyncStorage('password', '');
+      await NativeBridgeModule.clearE2EKey();
       if (wsIsRunning === 'true') {
         await setDataInAsyncStorage('wsIsRunning', 'false');
         setWsIsRunning('false');
@@ -795,8 +802,7 @@ export default function App() {
         data_s = { ...data };
       }
 
-      // remove trailing slashes in server_url
-      data_s.server_url = data_s.server_url.replace(/\/+$/, '');
+      data_s.server_url = requireSecureServerUrl(data_s.server_url);
 
       let iteration = 0;
       let loginResult;

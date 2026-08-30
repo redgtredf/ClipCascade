@@ -124,4 +124,17 @@ class AsyncStorageBridge(private val context: Context) {
             return false
         }
     }
+
+    @Synchronized
+    fun removeValue(key: String): Boolean {
+        ensureConnection()
+
+        return try {
+            db?.delete(TABLE_CATALYST, "$KEY_COLUMN = ?", arrayOf(key))
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing value for key $key", e)
+            false
+        }
+    }
 }

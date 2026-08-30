@@ -29,6 +29,7 @@ import java.io.IOException
 class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
     private val asyncBridge = AsyncStorageBridge(reactContext)
+    private val e2eKeyStore = E2EKeyStore(reactContext)
 
     override fun getName(): String {
         return "NativeBridgeModule"
@@ -43,6 +44,46 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
             promise.resolve("Cookies cleared successfully!")
         } catch (e: Exception) {
             promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+        }
+    }
+
+    @ReactMethod
+    fun storeE2EKey(base64Key: String, promise: Promise) {
+        try {
+            e2eKeyStore.store(base64Key)
+            asyncBridge.removeValue("hashed_password")
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("E2E_KEY_STORE_ERROR", "Failed to securely store the E2E key", e)
+        }
+    }
+
+    @ReactMethod
+    fun getE2EKey(promise: Promise) {
+        try {
+            var key = e2eKeyStore.retrieve()
+            if (key == null) {
+                val legacyKey = asyncBridge.getValue("hashed_password")
+                if (!legacyKey.isNullOrBlank()) {
+                    e2eKeyStore.store(legacyKey)
+                    asyncBridge.removeValue("hashed_password")
+                    key = legacyKey
+                }
+            }
+            promise.resolve(key)
+        } catch (e: Exception) {
+            promise.reject("E2E_KEY_READ_ERROR", "Failed to retrieve the E2E key", e)
+        }
+    }
+
+    @ReactMethod
+    fun clearE2EKey(promise: Promise) {
+        try {
+            e2eKeyStore.clear()
+            asyncBridge.removeValue("hashed_password")
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("E2E_KEY_CLEAR_ERROR", "Failed to clear the E2E key", e)
         }
     }
     

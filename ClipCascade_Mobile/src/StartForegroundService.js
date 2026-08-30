@@ -102,10 +102,14 @@ module.exports = async (inputData = null) => {
         // encrption
         const encrypt = async plainText => {
           try {
+            const e2eKey = await NativeBridgeModule.getE2EKey();
+            if (!e2eKey) {
+              throw new Error('E2E key is unavailable');
+            }
             const encryptedData = await AesGcmCrypto.encrypt(
               plainText,
               false,
-              await getDataFromAsyncStorage('hashed_password'),
+              e2eKey,
             );
             return JSON.stringify({
               nonce: Buffer.from(encryptedData.iv, 'hex').toString('base64'),
@@ -120,9 +124,13 @@ module.exports = async (inputData = null) => {
         // decryption
         const decrypt = async encryptedData => {
           try {
+            const e2eKey = await NativeBridgeModule.getE2EKey();
+            if (!e2eKey) {
+              throw new Error('E2E key is unavailable');
+            }
             const plainText = await AesGcmCrypto.decrypt(
               encryptedData['ciphertext'],
-              await getDataFromAsyncStorage('hashed_password'),
+              e2eKey,
               Buffer.from(encryptedData['nonce'], 'base64').toString('hex'),
               Buffer.from(encryptedData['tag'], 'base64').toString('hex'),
               false,
