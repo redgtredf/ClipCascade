@@ -238,15 +238,6 @@ function showStatusMessage(message, type) {
 function hideStatusMessage() {
   $(SELECTORS.statusMessage).hide();
 }
-function escapeHtml(text) {
-  if (!text) return "";
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 function autoPopulateWebSocketURL() {
   const currentUrl = window.location.href;
   const urlParts = currentUrl.split("/");
@@ -795,28 +786,34 @@ function displayIncomingMessage(message) {
   const type = message.type || "text";
 
   const encodedText = base64EncodeUnicode(payload);
-  const escapedPayload = escapeHtml(payload);
-  const escapedType = escapeHtml(type);
 
-  let metadataHtml = "";
+  // Build the row entirely through DOM APIs: clipboard payloads are
+  // attacker-controlled and must never pass through HTML-string
+  // interpolation or inline event-handler attributes (XSS).
+  let summaryText = `{payload:${payload}, type:${type}`;
   if (message.metadata) {
-    const metadataStr = JSON.stringify(message.metadata);
-    metadataHtml = `, metadata:${escapeHtml(metadataStr)}`;
+    summaryText += `, metadata:${JSON.stringify(message.metadata)}`;
   }
+  summaryText += "}";
 
-  const row = $(`
-          <tr>
-            <td>{payload:${escapedPayload}, type:${escapedType}${metadataHtml}}</td>
-            <td>
-              <div class="button-container">
-                <button class="btn btn-primary download-btn"
-                        onclick="downloadFile('${filename}', '${encodedText}')">Download</button>
-                <button class="btn btn-default copy-btn"
-                        onclick="copyToClipboard('${escapedPayload}')">Copy</button>
-              </div>
-            </td>
-          </tr>
-        `);
+  const payloadCell = $("<td>").text(summaryText);
+
+  const downloadBtn = $("<button>")
+    .attr("type", "button")
+    .addClass("btn btn-primary download-btn")
+    .text("Download")
+    .on("click", () => downloadFile(filename, encodedText));
+
+  const copyBtn = $("<button>")
+    .attr("type", "button")
+    .addClass("btn btn-default copy-btn")
+    .text("Copy")
+    .on("click", () => copyToClipboard(payload));
+
+  const row = $("<tr>").append(
+    payloadCell,
+    $("<td>").append($("<div>").addClass("button-container").append(downloadBtn, copyBtn))
+  );
   $(SELECTORS.conversationBody).append(row);
 }
 
