@@ -17,6 +17,7 @@ import json
 import logging
 import queue
 import re
+import sqlite3
 import struct
 import threading
 from datetime import datetime, timezone
@@ -105,12 +106,13 @@ def bootstrap(history_dir: str, clock: retention.Clock = None) -> HistoryInitRes
 
     Never raises: any DPAPI/SQLite failure quarantines what it safely can
     and returns a disabled result, so a caller never needs its own
-    try/except to keep the rest of the application running. The four typed
+    try/except to keep the rest of the application running. The typed
     failure modes below get a specific `disabled_reason` and (where safe) a
-    quarantine; everything else — an ACL call failing for a reason other
-    than "not Windows", a locked-down/read-only path, a disk-full write —
-    still falls through to the catch-all so it can never escape as a raw
-    exception and abort startup.
+    quarantine; OS-level/SQLite-level storage failures (ACL/pywin32 errors,
+    a locked-down/read-only path, a disk-full write, a db header SQLite
+    itself cannot read) return a disabled result without quarantining;
+    everything else still falls through to the catch-all so it can never
+    escape as a raw exception and abort startup.
     """
     clock = clock or retention.SystemClock()
     now = clock.now_utc()
@@ -120,12 +122,19 @@ def bootstrap(history_dir: str, clock: retention.Clock = None) -> HistoryInitRes
             crypto.secure_directory(history_dir)
         except crypto.HistoryUnavailableError as error:
             return HistoryInitResult(None, False, None, f"platform-unsupported: {error}")
+        except Exception as error:
+            # ACL/pywin32/OSError: nothing safe to quarantine yet, and a
+            # broken filesystem must not abort startup.
+            return HistoryInitResult(None, False, None, f"storage-unavailable: {error}")
 
         try:
             key, _created = crypto.load_or_create_master_key(history_dir)
         except crypto.KeyProtectionError as error:
             quarantined_path = store_mod.quarantine_history_directory(history_dir, now)
             return HistoryInitResult(None, False, quarantined_path, f"dpapi-failure: {error}")
+        except OSError as error:
+            # No quarantine here: moving files needs a working filesystem.
+            return HistoryInitResult(None, False, None, f"storage-unavailable: {error}")
 
         history_store = store_mod.HistoryStore(history_dir)
         try:
@@ -136,6 +145,9 @@ def bootstrap(history_dir: str, clock: retention.Clock = None) -> HistoryInitRes
         except store_mod.StoreCorruptError as error:
             quarantined_path = store_mod.quarantine_history_directory(history_dir, now)
             return HistoryInitResult(None, False, quarantined_path, f"store-corrupt: {error}")
+        except (sqlite3.Error, OSError) as error:
+            # OS/SQLite-level failure with nothing safely quarantinable.
+            return HistoryInitResult(None, False, None, f"storage-unavailable: {error}")
 
         if history_store.get_setting(_RECORDING_ENABLED_KEY) is None:
             history_store.set_setting(_RECORDING_ENABLED_KEY, "1")

@@ -200,14 +200,16 @@ def test_source_device_name_is_encrypted_but_decrypts_correctly(svc):
 
 
 def test_bootstrap_catches_unexpected_errors_without_crashing(tmp_path, monkeypatch):
-    """A failure that isn't one of the four typed exceptions — e.g. a real
-    Win32 ACL call failing for a reason other than "not Windows" — must
-    still disable history instead of escaping bootstrap() uncaught."""
+    """A failure that isn't one of the typed failure modes — e.g. a plain
+    ValueError raised while opening the store — must still disable history
+    instead of escaping bootstrap() uncaught. (ACL/OSError failures now have
+    their own storage-unavailable handling, so the catch-all is exercised
+    with a non-OS error instead.)"""
 
-    def boom(*args, **kwargs):
-        raise OSError("simulated ACL failure")
+    def boom(self):
+        raise ValueError("simulated unexpected failure")
 
-    monkeypatch.setattr(crypto.win32security, "SetFileSecurity", boom)
+    monkeypatch.setattr(store_mod.HistoryStore, "open", boom)
 
     history_dir = str(tmp_path / "history")
     result = service.bootstrap(history_dir)
@@ -256,6 +258,31 @@ def test_bootstrap_quarantines_corrupt_store_without_crashing(tmp_path):
     assert r2.enabled is False
     assert r2.disabled_reason.startswith("store-corrupt")
     assert r2.quarantined_path is not None
+    assert not os.path.exists(db_path)
+
+
+def test_bootstrap_quarantines_header_corrupt_store_without_crashing(tmp_path):
+    """Smashing the FIRST 100 bytes (the SQLite header) fails store.open()
+    in its connect/pragma stage, before integrity_check can run; bootstrap
+    must still return a disabled result and quarantine the store instead of
+    letting the raw SQLite error abort application startup."""
+    history_dir = str(tmp_path / "history")
+    r1 = service.bootstrap(history_dir)
+    for i in range(3):
+        r1.service.record(_event("text", f"row {i}"))
+    r1.service.close()
+
+    db_path = os.path.join(history_dir, store_mod.DB_FILE_NAME)
+    with open(db_path, "r+b") as f:
+        f.write(b"\xba\xad\xf0\x0d" * 25)  # exactly the first 100 bytes
+
+    r2 = service.bootstrap(history_dir)
+    assert r2.enabled is False
+    assert r2.service is None
+    assert r2.disabled_reason.startswith("store-corrupt")
+    assert r2.quarantined_path is not None
+    assert os.path.isdir(r2.quarantined_path)
+    # The db was moved into quarantine, not deleted or repaired in place.
     assert not os.path.exists(db_path)
 
 

@@ -131,9 +131,12 @@ def test_supported_upgrade_is_transactional_backed_up_and_forward_only(tmp_path)
     """No real product migration exists above v1 yet (v1 is the first shipped
     schema), so this proves the migration *engine* itself — backup before
     mutation, transactional apply, schema_version bump — using a synthetic
-    migration registered for the test."""
+    migration registered for the test. The backup is a WAL-consistent Online
+    Backup API snapshot: a row committed before the migration must be present
+    in it, proving the backup is not a stale/empty file copy."""
     history_dir = str(tmp_path / "history")
     store = store_mod.HistoryStore(history_dir).open()
+    store.insert_entry(_row(entry_id="pre-migration-row", created_at=1_700_000_123))
     store.close()
 
     applied = []
@@ -156,6 +159,14 @@ def test_supported_upgrade_is_transactional_backed_up_and_forward_only(tmp_path)
             assert applied == [True]
             backup_path = f"{store2.db_path}.pre-migration-v{original_current}.bak"
             assert os.path.isfile(backup_path)
+            backup_conn = sqlite3.connect(backup_path)
+            try:
+                backed_up_ids = [
+                    r[0] for r in backup_conn.execute("SELECT id FROM history_entry")
+                ]
+            finally:
+                backup_conn.close()
+            assert backed_up_ids == ["pre-migration-row"]
         finally:
             store2.close()
     finally:
@@ -202,6 +213,57 @@ def test_migration_failure_rolls_back_and_leaves_schema_version_unchanged(tmp_pa
         store2.close()
 
 
+def test_failed_migration_rolls_back_partial_effects_and_keeps_version(tmp_path):
+    """A migration step that writes a canary row and THEN raises must leave
+    zero partial effects: the canary row is rolled back, schema_version still
+    reads the original version, the pre-migration backup exists, and a fresh
+    open() succeeds — a failed migration attempt never bricks the store."""
+    history_dir = str(tmp_path / "history")
+    store = store_mod.HistoryStore(history_dir).open()
+    store.close()
+    original_version = store_mod.CURRENT_SCHEMA_VERSION
+
+    def canary_then_fail(conn):
+        conn.execute(
+            "INSERT INTO history_setting(key, value) VALUES ('canary', 'must-not-survive')"
+        )
+        raise RuntimeError("synthetic failure after partial migration write")
+
+    original_migrations = dict(store_mod.MIGRATIONS)
+    store_mod.CURRENT_SCHEMA_VERSION = original_version + 1
+    store_mod.MIGRATIONS[original_version] = canary_then_fail
+    try:
+        with pytest.raises(RuntimeError):
+            store_mod.HistoryStore(history_dir).open()
+    finally:
+        store_mod.CURRENT_SCHEMA_VERSION = original_version
+        store_mod.MIGRATIONS.clear()
+        store_mod.MIGRATIONS.update(original_migrations)
+
+    db_path = os.path.join(history_dir, store_mod.DB_FILE_NAME)
+    backup_path = f"{db_path}.pre-migration-v{original_version}.bak"
+    assert os.path.isfile(backup_path)  # backup was taken before the attempt
+
+    # Rollback worked: no canary row survived and the version never moved.
+    conn = sqlite3.connect(db_path)
+    try:
+        canary = conn.execute(
+            "SELECT value FROM history_setting WHERE key = 'canary'"
+        ).fetchone()
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+    finally:
+        conn.close()
+    assert canary is None
+    assert version == original_version
+
+    # With the migration globals restored, a fresh open() succeeds cleanly.
+    store2 = store_mod.HistoryStore(history_dir).open()
+    try:
+        assert store2.schema_version() == original_version
+    finally:
+        store2.close()
+
+
 def test_migration_refuses_when_no_step_registered(tmp_path):
     history_dir = str(tmp_path / "history")
     store = store_mod.HistoryStore(history_dir).open()
@@ -228,6 +290,27 @@ def test_forced_corruption_is_detected_and_never_silently_opened(tmp_path):
     with open(db_path, "r+b") as f:
         f.seek(4096)
         f.write(b"\xff" * min(8192, size - 4096))
+
+    with pytest.raises(store_mod.StoreCorruptError):
+        store_mod.HistoryStore(history_dir).open()
+
+    # Corrupt file left in place — never overwritten or "repaired".
+    assert os.path.isfile(db_path)
+
+
+def test_header_corruption_is_translated_to_store_corrupt_error(tmp_path):
+    """Garbage over the FIRST 100 bytes (the SQLite database header) fails
+    open() in its connect/pragma stage — before integrity_check can ever run
+    — and must surface as StoreCorruptError (so callers quarantine) instead
+    of a raw sqlite3.DatabaseError escaping open() and aborting startup."""
+    history_dir = str(tmp_path / "history")
+    store = store_mod.HistoryStore(history_dir).open()
+    store.insert_entry(_row())
+    store.close()
+
+    db_path = os.path.join(history_dir, store_mod.DB_FILE_NAME)
+    with open(db_path, "r+b") as f:
+        f.write(b"\xde\xad\xbe\xef" * 25)  # exactly the first 100 bytes
 
     with pytest.raises(store_mod.StoreCorruptError):
         store_mod.HistoryStore(history_dir).open()

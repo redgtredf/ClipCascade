@@ -123,20 +123,34 @@ class HistoryStore:
             is_new = (
                 not os.path.isfile(self.db_path) or os.path.getsize(self.db_path) == 0
             )
-            conn = sqlite3.connect(
-                self.db_path, isolation_level=None, timeout=5.0, check_same_thread=False
-            )
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("PRAGMA busy_timeout=5000")
-            self._conn = conn
+            # connect + the PRAGMAs sit inside the guard too: on a db whose
+            # header is corrupt they raise before integrity_check can ever
+            # run, and that must surface as StoreCorruptError (callers
+            # quarantine) rather than a raw sqlite3.Error that escapes
+            # open() and aborts startup.
+            conn = None
             try:
+                conn = sqlite3.connect(
+                    self.db_path, isolation_level=None, timeout=5.0, check_same_thread=False
+                )
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA foreign_keys=ON")
+                conn.execute("PRAGMA busy_timeout=5000")
+                self._conn = conn
                 if is_new:
                     self._create_schema()
                 else:
                     self._check_integrity()
                     self._migrate()
+            except sqlite3.Error as error:
+                if self._conn is not None:
+                    self.close()
+                elif conn is not None:
+                    conn.close()
+                raise StoreCorruptError(
+                    f"Failed to open history database: {error}"
+                ) from error
             except Exception:
                 self.close()
                 raise
@@ -217,14 +231,34 @@ class HistoryStore:
                     f"No migration registered from schema v{version} to v{CURRENT_SCHEMA_VERSION}"
                 )
             backup_path = f"{self.db_path}.pre-migration-v{version}.bak"
-            shutil.copyfile(self.db_path, backup_path)
-            next_version = version + 1
-            with self._explicit_transaction():
+            # SQLite Online Backup API, not shutil.copyfile: the connection
+            # is open in WAL mode, so a plain file copy can miss committed
+            # data still living only in the -wal sidecar. backup() is
+            # WAL-consistent; shutil stays imported for quarantine moves.
+            backup_conn = sqlite3.connect(backup_path)
+            try:
+                self._conn.backup(backup_conn)
+            finally:
+                backup_conn.close()
+            # Explicit BEGIN/COMMIT/ROLLBACK (see _explicit_transaction —
+            # `with self._conn:` is a no-op under isolation_level=None),
+            # with the rollback failure swallowed so it never masks the
+            # error that triggered it.
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
                 step(self._conn)
+                next_version = version + 1
                 self._conn.execute("DELETE FROM schema_version")
                 self._conn.execute(
                     "INSERT INTO schema_version(version) VALUES (?)", (next_version,)
                 )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
             version = next_version
 
     # --- entry CRUD ------------------------------------------------------

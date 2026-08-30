@@ -35,9 +35,11 @@ else:
     from gui.tray import TaskbarPanel
 
 class P2PManager(WSInterface):
-    def __init__(self, config: Config, is_login_phase=True):
+    def __init__(self, config: Config, is_login_phase=True, history_sink=None):
         self.config = config
-        self.clipboard_manager = ClipboardManager(self.config)
+        self.clipboard_manager = ClipboardManager(
+            self.config, history_sink=history_sink, history_transport="p2p"
+        )
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
         self.sys_tray: TaskbarPanel = None

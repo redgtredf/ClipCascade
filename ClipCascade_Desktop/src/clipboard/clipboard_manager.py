@@ -1,9 +1,13 @@
 import base64
+import hashlib
 import io
 import json
 import logging
 import os
+import time
 import xxhash
+from datetime import datetime, timezone
+from typing import Optional
 
 
 from PIL import Image
@@ -14,6 +18,7 @@ from core.document_safety import (
     sanitize_received_filenames,
     save_received_files,
 )
+from history.models import HistoryCaptureEvent, HistorySink
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -35,12 +40,48 @@ elif PLATFORM.startswith(LINUX):
     import subprocess
 
 
+# History capture dedup: same fingerprint (type + direction/source + canonical
+# bytes) seen again inside this window coalesces instead of creating a second
+# history row. The cache itself is pruned well past the window so a
+# long-running process never accumulates unbounded entries.
+_HISTORY_DEDUP_WINDOW_SECONDS = 2.0
+_HISTORY_DEDUP_CACHE_TTL_SECONDS = 30.0
+
+
+class NoOpHistorySink:
+    """Default `HistorySink`: discards every capture event.
+
+    Keeps history-absent/disabled/non-Windows behaviour byte-for-byte
+    identical to a build with no history code at all.
+    """
+
+    def record(self, event: HistoryCaptureEvent) -> None:
+        pass
+
+
 class ClipboardManager:
-    def __init__(self, config: Config):
+    def __init__(
+        self,
+        config: Config,
+        history_sink: Optional[HistorySink] = None,
+        history_transport: str = "local",
+    ):
         self.config = config
         self.previous_clipboard_hash = 0
         self.sys_tray: TaskbarPanel = None
         self.is_files_download_enabled = False
+        self.history_sink = history_sink or NoOpHistorySink()
+        # Fixed at construction: which network transport (if any) this
+        # manager's remote-direction captures should be attributed to.
+        self.history_transport = history_transport
+        # Stub for a future "Copy again" command (T6): set this to a
+        # non-None marker immediately before calling paste() so the
+        # resulting local capture isn't recorded as a fresh duplicate.
+        # Consumed (reset to None) by the next local capture attempt.
+        self.history_origin_suppress_token: Optional[str] = None
+        # dedup key -> monotonic timestamp of the last capture attempt seen
+        # for that (payload_type, direction/source, canonical-content) tuple.
+        self._history_dedup_cache: dict = {}
 
         if PLATFORM.startswith(LINUX) and XMODE:
             self.is_x_clipboard_owner = clipboard_monitor.is_x_clipboard_owner()
@@ -65,7 +106,11 @@ class ClipboardManager:
 
     @staticmethod
     def hash_clipboard(clipboard: str) -> int:
-        return xxhash.xxh64(clipboard).intdigest()
+        # Encode explicitly: some xxhash releases no longer accept str
+        # directly (raise "Strings must be encoded before hashing"), while
+        # UTF-8 encoding here reproduces the same digest older releases
+        # computed implicitly, so stored/compared hashes are unaffected.
+        return xxhash.xxh64(clipboard.encode("utf-8")).intdigest()
 
     def is_clipboard_size_within_limit(
         self, clipboard_content: any, type_: str = "text"
@@ -145,6 +190,9 @@ class ClipboardManager:
             type_ = type_.lower()
             if type_ == "text":
                 if self.is_clipboard_size_within_limit(content, type_):
+                    self._try_capture_history(
+                        lambda: self._build_local_capture_event("text", content, content)
+                    )
                     callback(content, type_)
 
             elif type_ == "image":
@@ -157,6 +205,11 @@ class ClipboardManager:
                     content = Image.open(content[0])
                 if self.is_clipboard_size_within_limit(content, type_):
                     content_str = ClipboardManager.convert_image_to_base64(img=content)
+                    self._try_capture_history(
+                        lambda: self._build_local_capture_event(
+                            "image", base64.b64decode(content_str), content_str
+                        )
+                    )
                     callback(content_str, type_)
 
             elif type_ == "files":
@@ -175,6 +228,11 @@ class ClipboardManager:
                         file_paths=content
                     )
                     if content_str != "{}":  # Check if the JSON string is empty
+                        self._try_capture_history(
+                            lambda: self._build_local_capture_event(
+                                "files", ClipboardManager._files_to_bytes_map(content_str), content_str
+                            )
+                        )
                         callback(content_str, type_)
         except Exception as e:
             logging.error(f"Failed to convert clipboard data to base64: {e}")
@@ -185,18 +243,158 @@ class ClipboardManager:
                 txt = base64_string
                 if self.is_clipboard_size_within_limit(txt, type_):
                     self.paste(txt, type_)
+                    self._try_capture_history(
+                        lambda: self._build_remote_capture_event("text", txt)
+                    )
             elif type_ == "image":
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
                 if self.is_clipboard_size_within_limit(img, type_):
                     self.paste(img, type_)
+                    self._try_capture_history(
+                        lambda: self._build_remote_capture_event(
+                            "image", base64.b64decode(base64_string)
+                        )
+                    )
             elif type_ == "files":
                 file_objects = ClipboardManager.convert_base64_to_files(
                     base64_json=base64_string
                 )
                 if self.is_clipboard_size_within_limit(file_objects, type_):
                     self.paste(file_objects, type_)
+                    self._try_capture_history(
+                        lambda: self._build_remote_files_capture_event(file_objects)
+                    )
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
+
+    # --- history capture (T2) -------------------------------------------
+    #
+    # Capture is a pure side-observation of already-validated clipboard
+    # activity: it never gates, delays or mutates the surrounding sync path.
+    # `_try_capture_history` swallows every exception a capture attempt can
+    # raise (a bad decode, a sink failure) so a broken/absent history feature
+    # can never break clipboard synchronisation.
+
+    def _try_capture_history(self, build_event) -> None:
+        try:
+            event = build_event()
+            if event is not None:
+                self.history_sink.record(event)
+        except Exception:
+            logging.exception(
+                "History capture failed; continuing without recording "
+                "(metadata only, no payload logged)"
+            )
+
+    def _build_local_capture_event(
+        self, payload_type: str, canonical_payload, hash_source: str
+    ) -> Optional[HistoryCaptureEvent]:
+        """Local-outbound capture, gated so an OS clipboard write caused by
+        this manager's own `paste()` (a remote item echoing back into the
+        local clipboard and retriggering the monitor) is never recorded as a
+        fresh local entry. Reads `previous_clipboard_hash` only — never
+        writes it, so echo-prevention/send behaviour is untouched."""
+        if self.history_origin_suppress_token is not None:
+            self.history_origin_suppress_token = None
+            return None
+        if ClipboardManager.hash_clipboard(hash_source) == self.previous_clipboard_hash:
+            return None
+        if self._should_coalesce_capture("local", "local", payload_type, canonical_payload):
+            return None
+        return HistoryCaptureEvent(
+            direction="local",
+            payload_type=payload_type,
+            payload=canonical_payload,
+            source_device_id=None,
+            source_device_name=None,
+            transport="local",
+            occurred_at_utc=datetime.now(timezone.utc),
+        )
+
+    def _build_remote_capture_event(
+        self, payload_type: str, canonical_payload
+    ) -> Optional[HistoryCaptureEvent]:
+        if self._should_coalesce_capture(
+            "remote", self.history_transport, payload_type, canonical_payload
+        ):
+            return None
+        return HistoryCaptureEvent(
+            direction="remote",
+            payload_type=payload_type,
+            payload=canonical_payload,
+            source_device_id=None,
+            source_device_name=None,
+            transport=self.history_transport,
+            occurred_at_utc=datetime.now(timezone.utc),
+        )
+
+    def _build_remote_files_capture_event(
+        self, file_objects: dict
+    ) -> Optional[HistoryCaptureEvent]:
+        """Only reached after size validation and a successful `paste()`.
+        Safe-name validation runs here, for the history record only: an
+        unsafe name raises and `_try_capture_history` drops the capture,
+        while the already-completed `paste()` (and the existing
+        save-time validation in `save_received_files`) are unaffected."""
+        safe_files = self.sanitize_received_filenames(file_objects)
+        files_bytes = {name: obj.getvalue() for name, obj in safe_files.items()}
+        return self._build_remote_capture_event("files", files_bytes)
+
+    @staticmethod
+    def _files_to_bytes_map(content_str: str) -> dict:
+        file_objects = ClipboardManager.convert_base64_to_files(content_str)
+        return {name: obj.getvalue() for name, obj in file_objects.items()}
+
+    # --- history capture deduplication (T2) -------------------------------
+    #
+    # Direction/source-aware: local and remote captures of identical content
+    # never coalesce with each other (separate `source_scope` keys), matching
+    # "direction must never be conflated". Device-level source identity is
+    # T3's scope; `source_scope` uses direction ("local") or transport
+    # ("p2s"/"p2p") as the best available proxy until then.
+
+    @staticmethod
+    def _canonical_bytes_for_dedup(payload_type: str, canonical_payload) -> bytes:
+        if payload_type == "text":
+            return canonical_payload.encode("utf-8")
+        if payload_type == "image":
+            return canonical_payload
+        if payload_type == "files":
+            parts = []
+            for name in sorted(canonical_payload.keys()):
+                parts.append(name.encode("utf-8"))
+                parts.append(b"\x00")
+                parts.append(canonical_payload[name])
+                parts.append(b"\x00")
+            return b"".join(parts)
+        return b""
+
+    def _should_coalesce_capture(
+        self, direction: str, source_scope: str, payload_type: str, canonical_payload
+    ) -> bool:
+        canonical_bytes = ClipboardManager._canonical_bytes_for_dedup(
+            payload_type, canonical_payload
+        )
+        digest = hashlib.sha256(
+            b"|".join(
+                [
+                    payload_type.encode("utf-8"),
+                    direction.encode("utf-8"),
+                    source_scope.encode("utf-8"),
+                    canonical_bytes,
+                ]
+            )
+        ).hexdigest()
+
+        now = time.monotonic()
+        cache = self._history_dedup_cache
+        cutoff = now - _HISTORY_DEDUP_CACHE_TTL_SECONDS
+        for stale_key in [key for key, seen_at in cache.items() if seen_at < cutoff]:
+            del cache[stale_key]
+
+        last_seen = cache.get(digest)
+        cache[digest] = now
+        return last_seen is not None and (now - last_seen) <= _HISTORY_DEDUP_WINDOW_SECONDS
 
     @staticmethod
     def execute_command(*args, input_data):

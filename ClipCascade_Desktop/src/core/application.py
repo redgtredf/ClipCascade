@@ -9,6 +9,7 @@ from utils.request_manager import RequestManager
 from utils.cipher_manager import CipherManager
 from stomp_ws.stomp_manager import STOMPManager
 from p2p.p2p_manager import P2PManager
+from history import service as history_service
 
 if PLATFORM == WINDOWS:
     import ctypes
@@ -37,6 +38,7 @@ class Application:
         data_file_path=DATA_FILE_NAME,
         mutex_identifier=MUTEX_NAME,
     ):
+        self.history_sink = None
         try:
             self.log_file_path = os.path.join(
                 get_program_files_directory(), log_file_path
@@ -57,14 +59,45 @@ class Application:
             )  # Maintain a single configuration instance for the entire application lifecycle.
 
             self.request_manager = RequestManager(self.config)
-            self.stomp_manager = STOMPManager(self.config)
-            self.p2p_manager = P2PManager(self.config)
+            self.history_sink = self._init_history_sink()
+            self.stomp_manager = STOMPManager(self.config, history_sink=self.history_sink)
+            self.p2p_manager = P2PManager(self.config, history_sink=self.history_sink)
             self.cipher_manager = CipherManager(self.config)
         except Exception as e:
             CustomDialog(
                 f"An error occurred during application initialization: {e}",
                 msg_type="error",
             ).mainloop()
+
+    def _init_history_sink(self):
+        """Windows-only: open the encrypted clipboard-history store and wrap
+        it in a bounded, non-blocking sink. Any failure (unsupported
+        platform, DPAPI/SQLite trouble) must fall back to no history at all,
+        never to a broken/half-initialized app, so this never lets an
+        exception escape."""
+        if PLATFORM != WINDOWS:
+            return None
+        try:
+            history_dir = os.path.join(get_program_files_directory(), "history")
+            init_result = history_service.bootstrap(history_dir)
+            if not init_result.enabled or init_result.service is None:
+                if init_result.disabled_reason:
+                    logging.warning(
+                        "Clipboard history disabled: %s", init_result.disabled_reason
+                    )
+                return None
+            try:
+                init_result.service.orphan_cleanup()
+            except Exception:
+                logging.exception(
+                    "History orphan cleanup failed at startup; continuing"
+                )
+            return history_service.QueuedHistorySink(init_result.service)
+        except Exception:
+            logging.exception(
+                "Failed to initialize clipboard history; continuing without it"
+            )
+            return None
 
     def setup_logging(self):
         LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -302,6 +335,11 @@ class Application:
             ).mainloop()
         finally:
             self._get_ws_manager().disconnect()
+            if self.history_sink is not None:
+                try:
+                    self.history_sink.stop()
+                except Exception:
+                    logging.exception("Failed to drain clipboard history on shutdown")
             if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
                 if self.lock_file is not None:
                     fcntl.flock(self.lock_file, fcntl.LOCK_UN)
