@@ -60,6 +60,7 @@ packages = [
     "clipboard",
     "core",
     "gui",
+    "history_ui",
     "interfaces",
     "p2p",
     "stomp_ws",

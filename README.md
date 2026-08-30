@@ -292,6 +292,25 @@ pip3 install -r requirements_win.txt
 python3 -m PyInstaller ClipCascade_win.spec
 ```
 
+The optional clipboard-history packaging probe uses an on-demand PySide6 child
+process. It is not a released history feature. On a clean 64-bit Python 3.12
+environment, build the baseline first, then install the separate Windows-only
+UI requirements and enable the candidate build:
+
+```powershell
+python -m pip install -r requirements_win.txt pyinstaller==6.11.1
+python -m PyInstaller --clean --noconfirm ClipCascade_win.spec
+
+python -m pip install -r requirements_win_history_ui.txt
+$env:CLIPCASCADE_WITH_HISTORY_UI = "1"
+python -m PyInstaller --clean --noconfirm ClipCascade_win.spec
+```
+
+The candidate keeps Qt out of a normal ClipCascade launch. `ClipCascade.exe
+--history-ui` starts only the temporary, empty measurement window; a repeat
+launch focuses that window. Use `--startup-probe --report <path>` to record a
+process-start timing without starting the existing client.
+
 The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
 
 [➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)

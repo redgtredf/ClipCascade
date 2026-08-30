@@ -1,0 +1,16 @@
+# Windows-only dependency for the on-demand clipboard-history window.
+#
+# Installed on top of requirements_win.txt when building with
+# CLIPCASCADE_WITH_HISTORY_UI=1. Kept separate from requirements_win.txt so the
+# T0 baseline and candidate builds can be produced from the same source tree,
+# and so the toolkit decision can still be reversed by deleting one file.
+#
+# PySide6-Essentials, not the PySide6 metapackage: the history window needs
+# QtCore/QtGui/QtWidgets/QtNetwork only, and the metapackage additionally pulls
+# PySide6-Addons (QtWebEngine, Multimedia, Charts, 3D).
+#
+# 6.8.2.1 is pinned because 6.6.1 ships shiboken6 compiled against the NumPy
+# 1.x ABI and emits a compatibility warning when NumPy 2.x is importable.
+# shiboken6 is pinned explicitly: PySide6 requires an exact match.
+PySide6-Essentials==6.8.2.1
+shiboken6==6.8.2.1
