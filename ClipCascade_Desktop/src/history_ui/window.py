@@ -5,7 +5,7 @@ window costs to package, launch and keep resident. The approved three-pane
 design replaces its contents in the UI ticket.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 WINDOW_TITLE = "ClipCascade history"
@@ -50,6 +50,7 @@ class HistoryWindow(QWidget):
         self.raise_()
         self.activateWindow()
 
+    @Slot()
     def handle_focus_request(self):
         self.focus_requests += 1
         self.present()

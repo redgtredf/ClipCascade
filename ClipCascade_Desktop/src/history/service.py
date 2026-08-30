@@ -510,11 +510,12 @@ class QueuedHistorySink:
     thread performs the actual (synchronous) `HistoryService.record()`.
     """
 
-    def __init__(self, service: HistoryService, maxsize: int = 200):
+    def __init__(self, service: HistoryService, maxsize: int = 200, on_recorded=None):
         self._service = service
         self._queue = queue.Queue(maxsize=maxsize)
         self.dropped_count = 0
         self._stop = threading.Event()
+        self._on_recorded = on_recorded
         self._worker = threading.Thread(
             target=self._run, name="clipcascade-history-writer", daemon=True
         )
@@ -539,7 +540,14 @@ class QueuedHistorySink:
             except queue.Empty:
                 continue
             try:
-                self._service.record(event)
+                entry_id = self._service.record(event)
+                if entry_id is not None and self._on_recorded is not None:
+                    try:
+                        self._on_recorded(entry_id)
+                    except Exception:
+                        logging.exception(
+                            "History IPC notification failed after a successful write"
+                        )
             except Exception:
                 logging.exception("History write failed; capture event dropped (metadata only)")
             finally:

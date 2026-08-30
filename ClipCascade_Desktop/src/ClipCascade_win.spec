@@ -10,8 +10,12 @@ WITH_HISTORY_UI = os.environ.get("CLIPCASCADE_WITH_HISTORY_UI", "0") == "1"
 hiddenimports = ['plyer.platforms.win.notification']
 
 # main.py imports these lazily, inside functions, so name them explicitly
-# rather than relying on the analyser walking that far.
-hiddenimports += ['history_ui.cli', 'history_ui.channel']
+# rather than relying on the analyser walking that far. history_ui.launcher
+# and history_ui.client have no Qt/PySide6 dependency at all -- the main
+# process constructs the launcher (and its authenticated IPC server)
+# regardless of whether this build bundles the PySide6 window, so both
+# builds need them; only the window itself is opt-in.
+hiddenimports += ['history_ui.cli', 'history_ui.launcher', 'history_ui.client']
 
 # shiboken6 uses NumPy only when it is importable; keeping NumPy out of the
 # bundle keeps the packaged child free of the NumPy ABI mismatch regardless of
@@ -19,7 +23,7 @@ hiddenimports += ['history_ui.cli', 'history_ui.channel']
 excludes = ['numpy']
 
 if WITH_HISTORY_UI:
-    hiddenimports += ['history_ui.main', 'history_ui.window', 'history_ui.launcher']
+    hiddenimports += ['history_ui.main', 'history_ui.window']
     # Qt modules the history window never imports. PySide6-Essentials ships
     # them, and every one left in raises the archive size and therefore the
     # extraction time of every cold start.

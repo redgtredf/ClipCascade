@@ -10,6 +10,8 @@ from utils.cipher_manager import CipherManager
 from stomp_ws.stomp_manager import STOMPManager
 from p2p.p2p_manager import P2PManager
 from history import service as history_service
+from history import ipc as history_ipc
+from history_ui import launcher as history_launcher_mod
 
 if PLATFORM == WINDOWS:
     import ctypes
@@ -39,6 +41,8 @@ class Application:
         mutex_identifier=MUTEX_NAME,
     ):
         self.history_sink = None
+        self.history_ipc_server = None
+        self.history_launcher = None
         try:
             self.log_file_path = os.path.join(
                 get_program_files_directory(), log_file_path
@@ -70,11 +74,12 @@ class Application:
             ).mainloop()
 
     def _init_history_sink(self):
-        """Windows-only: open the encrypted clipboard-history store and wrap
-        it in a bounded, non-blocking sink. Any failure (unsupported
-        platform, DPAPI/SQLite trouble) must fall back to no history at all,
-        never to a broken/half-initialized app, so this never lets an
-        exception escape."""
+        """Windows-only: open the encrypted clipboard-history store, start
+        the authenticated history IPC server and launcher behind it, and
+        wrap capture in a bounded, non-blocking sink. Any failure
+        (unsupported platform, DPAPI/SQLite trouble, IPC startup) must fall
+        back to no history at all, never to a broken/half-initialized app,
+        so this never lets an exception escape."""
         if PLATFORM != WINDOWS:
             return None
         try:
@@ -92,10 +97,38 @@ class Application:
                 logging.exception(
                     "History orphan cleanup failed at startup; continuing"
                 )
-            return history_service.QueuedHistorySink(init_result.service)
+
+            ipc_server = self._start_history_ipc_server(init_result.service)
+            self.history_ipc_server = ipc_server
+            self.history_launcher = history_launcher_mod.HistoryProcessLauncher(
+                ipc_server=ipc_server
+            )
+
+            return history_service.QueuedHistorySink(
+                init_result.service,
+                on_recorded=(ipc_server.notify_entry_added if ipc_server else None),
+            )
         except Exception:
             logging.exception(
                 "Failed to initialize clipboard history; continuing without it"
+            )
+            return None
+
+    @staticmethod
+    def _start_history_ipc_server(service):
+        """The IPC server lets an on-demand history window query/command the
+        service without ever touching SQLite or the DPAPI key directly. Its
+        absence must never take clipboard history capture down with it."""
+        try:
+            server = history_ipc.HistoryIpcServer(service)
+            server.start()
+            return server
+        except history_ipc.HistoryIpcUnavailableError:
+            return None
+        except Exception:
+            logging.exception(
+                "Failed to start the history IPC server; the history window "
+                "will be unavailable, clipboard history capture continues"
             )
             return None
 
@@ -335,6 +368,11 @@ class Application:
             ).mainloop()
         finally:
             self._get_ws_manager().disconnect()
+            if self.history_launcher is not None:
+                try:
+                    self.history_launcher.shutdown_ipc()
+                except Exception:
+                    logging.exception("Failed to shut down the history IPC server/child")
             if self.history_sink is not None:
                 try:
                     self.history_sink.stop()

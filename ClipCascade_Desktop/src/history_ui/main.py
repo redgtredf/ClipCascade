@@ -1,99 +1,34 @@
 """QApplication bootstrap for the on-demand history child process.
 
-Started as ``ClipCascade.exe --history-ui``. Only one window may exist per
-Windows user: a second launch hands the request to the running window over the
-focus channel and exits without ever creating a QApplication.
+Started as ``ClipCascade.exe --history-ui``, always by `history_ui.launcher`,
+which passes the authenticated IPC pipe name and per-launch session token
+through the environment (`history_ui.client.ENV_PIPE_NAME`/
+`ENV_SESSION_TOKEN`) -- never argv, never a log line. This module never
+touches SQLite, DPAPI or the history master key: everything it shows comes
+back already decrypted, over `history_ui.client.HistoryIpcClient`.
+
+Single-instance/focus-existing is now the *launcher's* job (it asks its own
+IPC server whether a child is already connected before ever spawning one), so
+unlike T0's placeholder this module no longer races another child for a
+self-owned pipe -- it only ever connects out.
 """
 
+import logging
 import os
 import sys
 
-from history_ui import channel, cli
+from history_ui import cli
+from history_ui.client import HistoryIpcClient, credentials_from_environment
 from history_ui.window import HistoryWindow
 
 
-class FocusServer:
-    """Answers focus/ping requests for the running window.
-
-    Keeps its own reference to every live connection; Qt would otherwise
-    collect the socket while the request is still being read.
-    """
-
-    def __init__(self, window):
-        from PySide6.QtNetwork import QLocalServer
-
-        self._window = window
-        self._connections = []
-        self._server = QLocalServer()
-        self._server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
-        self._server.newConnection.connect(self._accept)
-
-    def listen(self, name):
-        return self._server.listen(name)
-
-    def close(self):
-        self._server.close()
-
-    def _accept(self):
-        connection = self._server.nextPendingConnection()
-        if connection is None:
-            return
-        self._connections.append(connection)
-        connection.disconnected.connect(lambda: self._drop(connection))
-        connection.readyRead.connect(lambda: self._read(connection))
-        self._write(connection, {"pid": os.getpid()})
-
-    def _drop(self, connection):
-        if connection in self._connections:
-            self._connections.remove(connection)
-        connection.deleteLater()
-
-    def _read(self, connection):
-        import json
-
-        payload = bytes(connection.readAll().data())
-        for line in payload.split(b"\n"):
-            if not line.strip():
-                continue
-            try:
-                request = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
-                self._write(connection, {"ok": False, "error": "malformed request"})
-                continue
-            self._write(connection, self._handle(request))
-
-    def _handle(self, request):
-        action = request.get("action") if isinstance(request, dict) else None
-        if action == channel.ACTION_FOCUS:
-            self._window.handle_focus_request()
-            return {"ok": True, "action": action, "pid": os.getpid()}
-        if action == channel.ACTION_PING:
-            return {"ok": True, "action": action, "pid": os.getpid()}
-        return {"ok": False, "error": "unknown action"}
-
-    def _write(self, connection, payload):
-        import json
-
-        connection.write((json.dumps(payload) + "\n").encode("utf-8"))
-        connection.flush()
-
-
 def run(argv):
-    """Run the history window, or focus the one that is already open."""
+    """Run the history window, connecting to the authenticated IPC server the
+    launcher started. Without valid pipe/token credentials in the environment
+    (a bare manual invocation, or history disabled/unavailable at startup),
+    the window still opens -- a user gets an explanatory placeholder rather
+    than a silent failure -- but has no data connection."""
     options = cli.parse_options(argv)
-
-    # Cheapest path first: an existing window is raised without starting Qt.
-    if channel.request_focus():
-        cli.write_report(
-            options.report,
-            {
-                "mode": "history-ui",
-                "outcome": "focused-existing",
-                "pid": os.getpid(),
-                "process_start_to_focus_s": cli.elapsed_since_process_start(),
-            },
-        )
-        return cli.EXIT_OK
 
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
@@ -118,27 +53,60 @@ def run(argv):
             QTimer.singleShot(0, application.quit)
 
     window = HistoryWindow(on_first_paint=on_first_paint)
-    server = FocusServer(window)
-    if not server.listen(channel.pipe_name()):
-        # Lost a start-up race with another child; let the winner take focus.
-        if channel.request_focus():
-            measurements["outcome"] = "focused-existing"
-            cli.write_report(options.report, measurements)
-            return cli.EXIT_OK
-        measurements["outcome"] = "focus-failed"
-        cli.write_report(options.report, measurements)
-        return cli.EXIT_FOCUS_FAILED
+    client = _connect_client(window, application)
+    measurements["ipc_connected"] = client is not None
 
     window.present()
     if options.hold_seconds > 0:
         QTimer.singleShot(int(options.hold_seconds * 1000), application.quit)
 
     exit_code = application.exec()
+    if client is not None:
+        client.close()
     measurements["focus_requests"] = window.focus_requests
     measurements["process_start_to_exit_s"] = cli.elapsed_since_process_start()
     cli.write_report(options.report, measurements)
-    server.close()
     return exit_code
+
+
+def _connect_client(window, application):
+    """Best-effort: any failure to reach the main process must still let the
+    window open (it just has no data yet), never abort the child."""
+    pipe_name, token = credentials_from_environment()
+    if pipe_name is None:
+        return None
+
+    def on_focus():
+        _invoke_blocking(window, "handle_focus_request")
+
+    def on_disconnected():
+        logging.warning(
+            "History IPC: disconnected from the main process; closing history window"
+        )
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, application.quit)
+
+    client = HistoryIpcClient(pipe_name, token, on_focus=on_focus, on_disconnected=on_disconnected)
+    try:
+        if not client.connect():
+            return None
+    except Exception:
+        logging.exception("History IPC: failed to connect to the main process")
+        return None
+    return client
+
+
+def _invoke_blocking(window, slot_name):
+    """Run `slot_name` on the Qt (main) thread and block the caller (the IPC
+    reader thread) until it actually ran. This is what makes a focus-window
+    ack meaningful evidence of responsiveness: a frozen Qt event loop makes
+    this call hang too, so the main process's bounded ack-wait correctly
+    times out and treats the child as unresponsive rather than merely
+    "the pipe is still open"."""
+    from PySide6.QtCore import QMetaObject, Qt
+
+    QMetaObject.invokeMethod(window, slot_name, Qt.ConnectionType.BlockingQueuedConnection)
 
 
 def _qt_version():
