@@ -17,6 +17,7 @@ import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.service.FacadeUserService;
 import com.acme.clipcascade.service.UserInfoService;
 import com.acme.clipcascade.service.UserService;
+import com.acme.clipcascade.utils.IpAddressResolver;
 
 /**
  * Unit tests proving the initial admin account is bootstrapped from explicit
@@ -35,7 +36,12 @@ class FacadeUserServiceTests {
     }
 
     private FacadeUserService facadeWith(UserService userService, UserInfoService userInfoService) {
-        return new FacadeUserService(userService, userInfoService, propertiesWithAdminCredentials());
+        ClipCascadeProperties properties = propertiesWithAdminCredentials();
+        return new FacadeUserService(
+                userService,
+                userInfoService,
+                properties,
+                new IpAddressResolver(properties));
     }
 
     @Test

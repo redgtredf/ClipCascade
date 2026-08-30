@@ -917,6 +917,17 @@ Initial admin password. Never logged, redacted from the admin page, and never re
 <td>*(none — startup fails if unset)</td>
 </tr>
 
+<!-- 19c -->
+<tr>
+<td>CC_TRUSTED_PROXIES</td>
+<td>
+Comma-separated IPs/CIDRs of reverse proxies allowed to set <code>X-Forwarded-For</code> (used for per-IP brute-force protection). Entries from any other source are ignored, so clients cannot spoof their IP to bypass limits or lock out accounts.
+<br><br>
+<strong>Note:</strong> Add your proxy's address explicitly when it is outside the default ranges (e.g. a public-facing load balancer).
+</td>
+<td>127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16</td>
+</tr>
+
 <!-- 20 -->
 <tr>
 <td>CC_SERVER_DB_PASSWORD</td>

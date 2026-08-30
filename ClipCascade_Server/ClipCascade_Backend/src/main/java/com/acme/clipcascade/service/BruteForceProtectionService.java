@@ -42,14 +42,17 @@ public class BruteForceProtectionService {
 
     private final ClipCascadeProperties clipCascadeProperties;
     private final ObjectMapper objectMapper;
+    private final IpAddressResolver ipAddressResolver;
     private final Logger logger;
 
     public BruteForceProtectionService(
             @Nullable CacheManager trackerCacheManager,
             ClipCascadeProperties clipCascadeProperties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            IpAddressResolver ipAddressResolver) {
 
         this.clipCascadeProperties = clipCascadeProperties;
+        this.ipAddressResolver = ipAddressResolver;
 
         this.objectMapper = objectMapper;
         logger = (Logger) LoggerFactory.getLogger(BruteForceProtectionService.class);
@@ -70,7 +73,7 @@ public class BruteForceProtectionService {
         }
 
         // get the current(active) user ip address
-        String activeIp = IpAddressResolver.getUserIpAddress();
+        String activeIp = ipAddressResolver.getUserIpAddress();
 
         ReentrantLock lock = getUserLock(username);
         lock.lock(); // acquire the lock for specific username
@@ -128,7 +131,7 @@ public class BruteForceProtectionService {
         }
 
         // get the current(active) user ip address
-        String activeIp = IpAddressResolver.getUserIpAddress();
+        String activeIp = ipAddressResolver.getUserIpAddress();
 
         ReentrantLock lock = getUserLock(username);
         lock.lock(); // acquire the lock for specific username

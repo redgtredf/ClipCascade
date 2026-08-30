@@ -25,6 +25,17 @@ public class ClipCascadeProperties {
     @Value("${CC_ALLOWED_ORIGINS:*}")
     private String allowedOrigins;
 
+    /*
+     * Comma-separated IPs/CIDRs of reverse proxies allowed to set
+     * X-Forwarded-For (default: loopback + private ranges, covering a
+     * localhost or compose-network proxy). Any other source is ignored:
+     * client-supplied forwarded values can never influence brute-force
+     * buckets or lockouts. Add your proxy's address explicitly when it is
+     * outside these ranges.
+     */
+    @Value("${CC_TRUSTED_PROXIES:127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}")
+    private String trustedProxies;
+
     // Flag to enable or disable signup form (default: false)
     @Value("${CC_SIGNUP_ENABLED:false}")
     private boolean signupEnabled;
@@ -326,6 +337,10 @@ public class ClipCascadeProperties {
 
     public String getAllowedOrigins() {
         return allowedOrigins;
+    }
+
+    public String getTrustedProxies() {
+        return trustedProxies;
     }
 
     public boolean isSignupEnabled() {

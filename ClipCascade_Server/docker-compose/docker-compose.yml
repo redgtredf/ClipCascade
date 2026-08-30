@@ -206,6 +206,11 @@ services:
       # # Default: false
       # - CC_LOG_BRUTE_FORCE_TRACKER_ENABLED=false
 
+      # # ⚙️ Comma-separated IPs/CIDRs of reverse proxies allowed to set
+      # # X-Forwarded-For (used for brute-force protection). Default trusts
+      # # loopback + private ranges; add your proxy's address if it is public.
+      # - CC_TRUSTED_PROXIES=127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+
       # # ------------------------------------------------- # #
       # #            External Broker Settings               # #
       # # ------------------------------------------------- # #

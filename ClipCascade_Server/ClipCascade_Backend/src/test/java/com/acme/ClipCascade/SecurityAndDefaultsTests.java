@@ -84,10 +84,13 @@ class SecurityAndDefaultsTests {
     }
 
     @Test
-    void sessionCookiesAreHardenedAndForwardedHeadersAreHonored() {
+    void sessionCookiesAreHardenedAndForwardedHeadersAreNotTrusted() {
         assertEquals("true", environment.getProperty("server.servlet.session.cookie.secure"));
         assertEquals("true", environment.getProperty("server.servlet.session.cookie.http-only"));
         assertEquals("lax", environment.getProperty("server.servlet.session.cookie.same-site"));
-        assertEquals("framework", environment.getProperty("server.forward-headers-strategy"));
+        // "framework" would trust client-supplied X-Forwarded-For
+        // unconditionally (spoofable); IpAddressResolver + CC_TRUSTED_PROXIES
+        // handle forwarded headers instead.
+        assertEquals("none", environment.getProperty("server.forward-headers-strategy"));
     }
 }

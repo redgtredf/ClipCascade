@@ -17,9 +17,11 @@ import com.acme.clipcascade.utils.TimeUtility;
 public class UserInfoService {
 
     private final UserInfoRepo userInfoRepo;
+    private final IpAddressResolver ipAddressResolver;
 
-    public UserInfoService(UserInfoRepo userInfoRepo) {
+    public UserInfoService(UserInfoRepo userInfoRepo, IpAddressResolver ipAddressResolver) {
         this.userInfoRepo = userInfoRepo;
+        this.ipAddressResolver = ipAddressResolver;
     }
 
     public boolean userExists(String username) {
@@ -101,7 +103,7 @@ public class UserInfoService {
                 false,
                 TimeUtility.getCurrentTimeInSeconds(),
                 null,
-                IpAddressResolver.getUserIpAddress(),
+                ipAddressResolver.getUserIpAddress(),
                 null,
                 0,
                 null,

@@ -24,15 +24,18 @@ public class FacadeUserService {
     private final UserService userService;
     private final UserInfoService userInfoService;
     private final ClipCascadeProperties clipCascadeProperties;
+    private final IpAddressResolver ipAddressResolver;
 
     public FacadeUserService(
             UserService userService,
             UserInfoService userInfoService,
-            ClipCascadeProperties clipCascadeProperties) {
+            ClipCascadeProperties clipCascadeProperties,
+            IpAddressResolver ipAddressResolver) {
 
         this.userService = userService;
         this.userInfoService = userInfoService;
         this.clipCascadeProperties = clipCascadeProperties;
+        this.ipAddressResolver = ipAddressResolver;
     }
 
     /**
@@ -157,7 +160,7 @@ public class FacadeUserService {
 
         return userInfoService.setLoginDetails(
                 username,
-                IpAddressResolver.getUserIpAddress(),
+                ipAddressResolver.getUserIpAddress(),
                 TimeUtility.getCurrentTimeInSeconds(),
                 (ipDetails.getAttempts() + (ipDetails.getLockCount() * clipCascadeProperties.getMaxAttemptsPerIp()))
                         - 1,
