@@ -3,6 +3,8 @@ package com.acme.clipcascade.service;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.config.ClipCascadeProperties;
@@ -16,6 +18,8 @@ import com.acme.clipcascade.utils.UserValidator;
 
 @Service
 public class FacadeUserService {
+
+    private final Logger logger = (Logger) LoggerFactory.getLogger(FacadeUserService.class);
 
     private final UserService userService;
     private final UserInfoService userInfoService;
@@ -31,15 +35,26 @@ public class FacadeUserService {
         this.clipCascadeProperties = clipCascadeProperties;
     }
 
+    /**
+     * Bootstraps the initial admin account from CC_ADMIN_USERNAME /
+     * CC_ADMIN_PASSWORD, and only when the user database is completely empty. An
+     * existing database is never touched: the admin credential (or any other
+     * account) is never reset or recreated on restart. Startup fails fast when
+     * the admin credentials are missing (ProductionConfigValidator).
+     */
     public void insertDefaultAdminUserIfEmpty() {
         if (userService.isTableEmpty()) {
+            String adminUsername = clipCascadeProperties.getAdminUsername();
+
             userService.doubleHashAndCreateUser(
-                    "admin",
-                    "admin123",
+                    adminUsername,
+                    clipCascadeProperties.getAdminPassword(),
                     RoleConstants.ADMIN,
                     true);
 
-            userInfoService.registerNewUser("admin");
+            userInfoService.registerNewUser(adminUsername);
+
+            logger.info("Bootstrapped initial admin user '{}'", adminUsername); // metadata only, never the password
         }
     }
 

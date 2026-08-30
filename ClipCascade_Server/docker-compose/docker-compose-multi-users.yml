@@ -14,7 +14,10 @@ services:
     networks:
       - internal_network
     environment:
-      # CC_ALLOWED_ORIGINS: https://clipcascade.example.com
+      # ⚠️ REQUIRED: set in the '.env' file next to this compose file.
+      CC_ALLOWED_ORIGINS: ${CC_ALLOWED_ORIGINS:?Set CC_ALLOWED_ORIGINS in .env (e.g. https://clipcascade.example.com)}
+      CC_ADMIN_USERNAME: ${CC_ADMIN_USERNAME:?Set CC_ADMIN_USERNAME in .env (initial admin username)}
+      CC_ADMIN_PASSWORD: ${CC_ADMIN_PASSWORD:?Set CC_ADMIN_PASSWORD in .env (initial admin password)}
       CC_P2P_ENABLED: true
       CC_P2P_STUN_URL: stun:stun.l.google.com:19302
       CC_SIGNUP_ENABLED: true
@@ -32,8 +35,9 @@ services:
       CC_BFA_TRACKER_CACHE_RAM_PERCENTAGE: 10
       CC_BFA_TRACKER_CACHE_DISK_PERCENTAGE: 40
       CC_SERVER_DB_URL: jdbc:postgresql://postgresdb:5432/clipcascade
-      CC_SERVER_DB_USERNAME: clipcascade # Should match PostgreSQL credentials 
-      CC_SERVER_DB_PASSWORD: NcKME70uZ4EDOOm # Should match PostgreSQL credentials 
+      CC_SERVER_DB_USERNAME: clipcascade # Should match PostgreSQL credentials
+      # Shared with the postgresdb service below so both sides stay in sync.
+      CC_SERVER_DB_PASSWORD: ${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (PostgreSQL password)}
       CC_SERVER_DB_DRIVER: org.postgresql.Driver
       CC_SERVER_DB_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
       CC_SERVER_LOG_HISTORY_MAX_DAYS: 30
@@ -48,7 +52,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: clipcascade
-      POSTGRES_PASSWORD: NcKME70uZ4EDOOm
+      POSTGRES_PASSWORD: ${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (PostgreSQL password)}
       POSTGRES_DB: clipcascade
     networks:
       - internal_network

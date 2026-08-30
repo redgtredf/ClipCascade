@@ -1,5 +1,9 @@
 version: '3.8'
 
+# ⚠️ REQUIRED: copy '.env.example' to '.env' (same folder) and fill in
+# CC_ADMIN_USERNAME / CC_ADMIN_PASSWORD, CC_SERVER_DB_PASSWORD and
+# CC_ALLOWED_ORIGINS. The server refuses to start without them.
+
 services:
   clipcascade:
     image: sathvikrao/clipcascade:latest
@@ -11,5 +15,8 @@ services:
       - ./cc_users:/database
       # - ./logs:/logs
     environment:
-      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:?Set CC_ALLOWED_ORIGINS in .env (e.g. http://localhost:8080 or https://clipcascade.example.com)}
+      - CC_ADMIN_USERNAME=${CC_ADMIN_USERNAME:?Set CC_ADMIN_USERNAME in .env (initial admin username)}
+      - CC_ADMIN_PASSWORD=${CC_ADMIN_PASSWORD:?Set CC_ADMIN_PASSWORD in .env (initial admin password)}
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (H2 format: <file password> <user password>)}
       - CC_P2P_ENABLED=true

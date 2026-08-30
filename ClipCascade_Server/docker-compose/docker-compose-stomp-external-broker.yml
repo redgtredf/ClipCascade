@@ -1,5 +1,10 @@
 version: '3.8'
 
+# ⚠️ REQUIRED: copy '.env.example' to '.env' (same folder) and set at least:
+#   CC_ADMIN_USERNAME / CC_ADMIN_PASSWORD, CC_SERVER_DB_PASSWORD,
+#   CC_ALLOWED_ORIGINS, CC_BROKER_USERNAME, CC_BROKER_PASSWORD.
+# The broker credentials must match the ActiveMQ admin login below.
+
 services:
   clipcascade:
     image: sathvikrao/clipcascade:latest
@@ -14,12 +19,15 @@ services:
       - activemq
     environment:
       - CC_MAX_MESSAGE_SIZE_IN_MiB=1
-      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:?Set CC_ALLOWED_ORIGINS in .env (e.g. http://localhost:8080 or https://clipcascade.example.com)}
+      - CC_ADMIN_USERNAME=${CC_ADMIN_USERNAME:?Set CC_ADMIN_USERNAME in .env (initial admin username)}
+      - CC_ADMIN_PASSWORD=${CC_ADMIN_PASSWORD:?Set CC_ADMIN_PASSWORD in .env (initial admin password)}
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (H2 format: <file password> <user password>)}
       - CC_EXTERNAL_BROKER_ENABLED=true
       - CC_BROKER_HOST=activemq
       - CC_BROKER_PORT=61613
-      - CC_BROKER_USERNAME=admin # Should match activemq credentials 
-      - CC_BROKER_PASSWORD=admin # Should match activemq credentials
+      - CC_BROKER_USERNAME=${CC_BROKER_USERNAME:?Set CC_BROKER_USERNAME in .env (must match ActiveMQ admin login)}
+      - CC_BROKER_PASSWORD=${CC_BROKER_PASSWORD:?Set CC_BROKER_PASSWORD in .env (must match ActiveMQ admin password)}
 
   activemq:
     image: apache/activemq-classic:latest
@@ -30,5 +38,5 @@ services:
       # - 61616:61616 # OpenWire Protocol Port
     restart: always
     environment:
-      - ACTIVEMQ_ADMIN_LOGIN=admin
-      - ACTIVEMQ_ADMIN_PASSWORD=admin
+      - ACTIVEMQ_ADMIN_LOGIN=${CC_BROKER_USERNAME:?Set CC_BROKER_USERNAME in .env}
+      - ACTIVEMQ_ADMIN_PASSWORD=${CC_BROKER_PASSWORD:?Set CC_BROKER_PASSWORD in .env}

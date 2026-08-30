@@ -25,6 +25,12 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 
+const {
+  utf8SafeChunks,
+  maxTotalFragments,
+  isValidFragmentMetadata,
+} = require('./fragmentUtils');
+
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
   DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
@@ -144,15 +150,11 @@ module.exports = async (inputData = null) => {
           return 3 * (n / 4) - padding;
         };
 
-        // fragment string into chunks
+        // fragment string into chunks (cuts on UTF-8 codepoint boundaries so
+        // multi-byte characters are never corrupted; concatenating the
+        // fragments reproduces the input exactly)
         const fragmentString = async (str, fragmentSize) => {
-          const bytes = textEncoder.encode(str); // convert to UTF-8 bytes
-          const fragments = [];
-          for (let i = 0; i < bytes.length; i += fragmentSize) {
-            const chunk = bytes.slice(i, i + fragmentSize);
-            fragments.push(textDecoder.decode(chunk));
-          }
-          return fragments;
+          return utf8SafeChunks(str, fragmentSize);
         };
 
         // generate uuid
@@ -1048,16 +1050,37 @@ module.exports = async (inputData = null) => {
 
               // Fragmented message handling
               if (metadata != null && metadata.isFragmented) {
-                receivingFragmentStats = `${metadata.index + 1}/${
-                  metadata.totalFragments
-                }`;
+                const totalFragments = metadata.totalFragments;
+                const fragmentIndex = metadata.index;
+
+                // Validate remote metadata before allocating anything: a
+                // malicious peer must not be able to dictate an arbitrary
+                // pre-allocation size or an out-of-range index.
+                const metadataValid = isValidFragmentMetadata(
+                  totalFragments,
+                  fragmentIndex,
+                );
+                const maxAllowedFragments = maxTotalFragments(
+                  FRAGMENT_SIZE,
+                  max_clipboard_size_local_limit_bytes,
+                );
+                if (!metadataValid || totalFragments > maxAllowedFragments) {
+                  await resetReceivingFragments();
+                  p2pMsg = metadataValid
+                    ? `Failed to receive: declared totalFragments ${totalFragments} exceeds the allowed maximum of ${maxAllowedFragments}.`
+                    : 'Failed to receive: invalid fragment metadata.';
+                  await p2pStatusMessageChanged();
+                  return;
+                }
+
+                receivingFragmentStats = `${fragmentIndex + 1}/${totalFragments}`;
                 await p2pStatusMessageChanged();
 
                 if (metadata.id in receivingFragments) {
-                  receivingFragments[metadata.id][metadata.index] = cb;
+                  receivingFragments[metadata.id][fragmentIndex] = cb;
 
                   // If this is the last fragment, try to combine
-                  if (metadata.index === metadata.totalFragments - 1) {
+                  if (fragmentIndex === totalFragments - 1) {
                     // Check if all fragments are present (none is empty)
                     if (
                       receivingFragments[metadata.id].every(frag => frag !== '')
@@ -1079,9 +1102,9 @@ module.exports = async (inputData = null) => {
                 } else {
                   await resetReceivingFragments();
                   receivingFragments[metadata.id] = Array(
-                    metadata.totalFragments,
+                    totalFragments,
                   ).fill('');
-                  receivingFragments[metadata.id][metadata.index] = cb;
+                  receivingFragments[metadata.id][fragmentIndex] = cb;
                   return;
                 }
               }

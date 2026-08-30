@@ -3,13 +3,17 @@ package com.acme.clipcascade.controller;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.Collections;
+import java.util.Locale;
 import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.Map;
 
 import javax.imageio.ImageIO;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -36,6 +40,7 @@ import com.acme.clipcascade.service.SessionService;
 import com.acme.clipcascade.service.UserInfoService;
 import com.acme.clipcascade.service.UserService;
 import com.acme.clipcascade.service.WebSocketStatsService;
+import com.acme.clipcascade.utils.ClipboardDataValidator;
 import com.acme.clipcascade.utils.ResponseEntityUtil;
 import com.acme.clipcascade.utils.TimeUtility;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -56,6 +61,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 
 @Controller
 public class ClipCascadeController {
+
+    private final Logger logger = (Logger) LoggerFactory.getLogger(ClipCascadeController.class);
 
     private final ClipCascadeProperties clipCascadeProperties;
     private final UserService userService;
@@ -175,6 +182,25 @@ public class ClipCascadeController {
             return;
         }
 
+        /*
+         * Application-level validation before relay (complements the transport-level
+         * size limits). Rejections are metadata-only: payload content is never logged.
+         */
+        if (clipboardData.getType() != null
+                && !ClipboardDataValidator.isValidType(clipboardData.getType())) {
+
+            logger.warn("Rejected clipboard message: unknown type"); // never log the payload
+            throw new MessagingException("Rejected clipboard message: unknown type");
+        }
+
+        if (!ClipboardDataValidator.isWithinSizeLimit(
+                clipboardData.getPayload(),
+                clipCascadeProperties.getMaxMessageSizeInBytes())) {
+
+            logger.warn("Rejected clipboard message: payload exceeds the configured maximum size"); // never log the payload
+            throw new MessagingException("Rejected clipboard message: payload exceeds the configured maximum size");
+        }
+
         // Extract the custom UserPrincipal object from the Principal
         UserPrincipal userPrincipal = (UserPrincipal) ((UsernamePasswordAuthenticationToken) principal)
                 .getPrincipal();
@@ -183,7 +209,8 @@ public class ClipCascadeController {
         // Default type is "text" if none is specified
         ClipboardData messageToSend = new ClipboardData(
                 clipboardData.getPayload(),
-                (clipboardData.getType() == null) ? "text" : clipboardData.getType(),
+                (clipboardData.getType() == null) ? "text"
+                        : clipboardData.getType().strip().toLowerCase(Locale.ROOT),
                 clipboardData.getMetadata());
 
         /**

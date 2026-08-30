@@ -1,8 +1,13 @@
 package com.acme.clipcascade.constants;
 
+import java.util.Set;
+
 public class ServerConstants {
     // App version
     public static final String APP_VERSION = "3.1.0";
+
+    // Allowed clipboard data types accepted for relay (must match the clients)
+    public static final Set<String> CLIPBOARD_DATA_TYPES = Set.of("text", "image", "files");
 
     // Version URL
     public static final String VERSION_URL = "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json";

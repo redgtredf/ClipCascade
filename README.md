@@ -146,8 +146,11 @@ To deploy the ClipCascade server on any operating system that supports Java 21 o
 
     | Variable                     | Description                                                                                          | Default Value     | Example                           |
     |------------------------------|------------------------------------------------------------------------------------------------------|-------------------|-----------------------------------|
+    | `CC_ADMIN_USERNAME`          | **Required.** Initial admin username, used only to bootstrap the account when the database is empty. | *(none — startup fails if unset)* | `admin`                           |
+    | `CC_ADMIN_PASSWORD`          | **Required.** Initial admin password. Never use a well-known value; no default exists.               | *(none — startup fails if unset)* | *(a strong unique password)*      |
+    | `CC_SERVER_DB_PASSWORD`      | **Required.** Password for encrypting the user database. H2 expects `<file password> <user password>`. | *(none — startup fails if unset)* | *(two space-separated secrets)*   |
+    | `CC_ALLOWED_ORIGINS`         | **Required.** Comma-separated origins allowed to reach the dashboard/WebSocket. Wildcards are refused. | *(none — startup fails if unset)* | `https://clipcascade.example.com` |
     | `CC_MAX_MESSAGE_SIZE_IN_MiB` | Defines the maximum allowed message size in MiB. Ignored if `CC_P2P_ENABLED` is set to `true`.       | `1`               | `3`                               |
-    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed CORS origins for secure cross-origin access.                                   | `*`               | `https://clipcascade.example.com` |
     | `CC_P2P_ENABLED`             | Enables or disables peer-to-peer mode. When enabled, `CC_MAX_MESSAGE_SIZE_IN_MiB` is ignored.        | `false`           | `true`                            |
     | `CC_SIGNUP_ENABLED`          | Allows or restricts user self-registration.                                                          | `false`           | `false`                           |
     | `CC_PORT`                    | Specifies the port on which the server listens for incoming connections.                             | `8080`            | `1234`                            |
@@ -166,11 +169,10 @@ To deploy the ClipCascade server on any operating system that supports Java 21 o
     http://localhost:8080
     ```
 
-    - **Default Credentials:**  
-      - **Username:** `admin`  
-      - **Password:** `admin123`  
+    - **Initial Admin Account:**  
+      Created on first start from the **required** `CC_ADMIN_USERNAME` and `CC_ADMIN_PASSWORD` environment variables (only when the user database is empty). There is no default admin account.
 
-> **Important:** It is strongly recommended to change the default credentials immediately after the initial login.
+> **Important:** The server refuses to start when `CC_ADMIN_USERNAME`, `CC_ADMIN_PASSWORD`, `CC_SERVER_DB_PASSWORD`, or `CC_ALLOWED_ORIGINS` are not set. This fail-fast replaces the old insecure defaults.
 
 For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup) section.
 
@@ -184,9 +186,17 @@ For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setu
 
 For users who prefer a one-liner, you can deploy ClipCascade instantly using:
 
-```yaml
-docker run -d --name clipcascade -p 8080:8080 -e CC_MAX_MESSAGE_SIZE_IN_MiB=1 -v ./cc_users:/database sathvikrao/clipcascade
+```bash
+docker run -d --name clipcascade -p 8080:8080 \
+  -e CC_ADMIN_USERNAME=admin \
+  -e CC_ADMIN_PASSWORD='change-me-now' \
+  -e CC_SERVER_DB_PASSWORD='file-pass user-pass' \
+  -e CC_ALLOWED_ORIGINS='http://localhost:8080' \
+  -e CC_MAX_MESSAGE_SIZE_IN_MiB=1 \
+  -v ./cc_users:/database sathvikrao/clipcascade
 ```
+
+> Replace the credentials and allowed origin with your own values before exposing the server beyond `localhost`.
 
 #### Detailed Installation Steps
 
@@ -206,11 +216,16 @@ To host ClipCascade on your server using Docker, follow these steps:
         volumes:
           - ./cc_users:/database  # Persistent storage for user data
         environment:
+          - CC_ADMIN_USERNAME=admin                        # REQUIRED: initial admin username (no default)
+          - CC_ADMIN_PASSWORD=change-me-now                # REQUIRED: initial admin password (no default)
+          - CC_SERVER_DB_PASSWORD=file-pass user-pass      # REQUIRED: H2 format '<file password> <user password>'
+          - CC_ALLOWED_ORIGINS=http://localhost:8080       # REQUIRED: explicit, non-wildcard origins
           - CC_MAX_MESSAGE_SIZE_IN_MiB=1   # Maximum message size in MiB (ignored if P2P mode is enabled)
           - CC_P2P_ENABLED=false  # Enables or disables peer-to-peer(P2P) mode
-          # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Defines allowed CORS origins for security
           # - CC_SIGNUP_ENABLED=false  # Enables or disables user self-registration
    ```
+   
+   > Tip: copy `ClipCascade_Server/docker-compose/.env.example` from the repository to a `.env` file next to your compose file and reference the values as `${CC_ADMIN_PASSWORD}` etc. — Compose loads `.env` automatically.
     
    For additional `.yml` configuration files, visit [ClipCascade Server Docker Configuration](https://github.com/Sathvik-Rao/ClipCascade/tree/main/ClipCascade_Server/docker-compose).
   
@@ -229,12 +244,11 @@ To host ClipCascade on your server using Docker, follow these steps:
     http://localhost:8080
     ```
 
-    - **Default Credentials:**  
-      - **Username:** `admin`  
-      - **Password:** `admin123`  
+    - **Initial Admin Account:**  
+      Created on first start from the **required** `CC_ADMIN_USERNAME` and `CC_ADMIN_PASSWORD` environment variables (only when the user database is empty). There is no default admin account.
 
 
-> **Important:** It is strongly recommended to change the default credentials immediately after the initial login.
+> **Important:** The server refuses to start when `CC_ADMIN_USERNAME`, `CC_ADMIN_PASSWORD`, `CC_SERVER_DB_PASSWORD`, or `CC_ALLOWED_ORIGINS` are not set. This fail-fast replaces the old insecure defaults.
 
 For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup) section.
 
@@ -636,11 +650,8 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
 ### 🗄️ Server Configuration
 
 #### Important Security Notice:
-**Change the default admin credentials immediately after logging in** to prevent unauthorized access.  
+There is **no default admin account**. The initial admin is created from the **required** `CC_ADMIN_USERNAME` / `CC_ADMIN_PASSWORD` environment variables, and only when the user database is empty. The server refuses to start if required credentials or `CC_ALLOWED_ORIGINS` are missing.  
 
-#### Default Admin Credentials:  
-- **Username:** `admin`  
-- **Password:** `admin123`  
 
 #### Health Check Endpoint  
 - **Purpose:** Verifies if the server is running and operational.  
@@ -729,11 +740,11 @@ You can use a public STUN server or host your own.
 <td>
 Specifies which domain is permitted to access the WebSocket server (CORS policy).
 <br><br>
-<strong>Security Note:</strong><br>
-- Leaving this unset allows all origins (not recommended for security-sensitive deployments).<br>
-- To restrict access, specify your domain (e.g., <code>https://clipcascade.example.com</code>).
+<strong>Required:</strong><br>
+- Production startup fails when unset or wildcard; set explicit origin(s) (e.g., <code>https://clipcascade.example.com</code>).<br>
+- Wildcards are only permitted with the <code>local-test</code> (or <code>test</code>) profile.
 </td>
-<td>*</td>
+<td>*(none — startup fails if unset or wildcard)</td>
 </tr>
 
 <!-- 6 -->
@@ -884,6 +895,28 @@ Specifies the username for the database connection.
 <td>clipcascade</td>
 </tr>
 
+<!-- 19a -->
+<tr>
+<td>CC_ADMIN_USERNAME</td>
+<td>
+Initial admin username, used only to bootstrap the admin account when the user database is empty.
+<br><br>
+<strong>Note:</strong> <strong>Required</strong> — startup fails when unset or blank.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
+<!-- 19b -->
+<tr>
+<td>CC_ADMIN_PASSWORD</td>
+<td>
+Initial admin password. Never logged, redacted from the admin page, and never re-applied to an existing database.
+<br><br>
+<strong>Note:</strong> <strong>Required</strong> — startup fails when unset or blank.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
 <!-- 20 -->
 <tr>
 <td>CC_SERVER_DB_PASSWORD</td>
@@ -891,10 +924,11 @@ Specifies the username for the database connection.
 Defines the password used for encrypting the user database.
 <br><br>
 <strong>Note:</strong><br>
-- (H2) Replace <code>&lt;file password&gt; &lt;user password&gt;</code> with secure values.<br>
+- <strong>Required</strong> — startup fails when unset or blank.<br>
+- (H2) Use the <code>&lt;file password&gt; &lt;user password&gt;</code> format (two space-separated secrets).<br>
 - Once set, you must use the same password whenever you migrate the database.
 </td>
-<td>QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky</td>
+<td>*(none — startup fails if unset)</td>
 </tr>
 
 <!-- 21 -->
@@ -1005,9 +1039,9 @@ Specifies the STOMP broker port for external message handling.
 <td>
 Defines the STOMP broker username for external message handling.
 <br><br>
-<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+<strong>Note:</strong> Required (startup fails) when <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
 </td>
-<td>admin</td>
+<td>*(none — startup fails if unset)</td>
 </tr>
 
 <!-- 32 -->
@@ -1016,9 +1050,9 @@ Defines the STOMP broker username for external message handling.
 <td>
 Defines the STOMP broker password for external message handling.
 <br><br>
-<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+<strong>Note:</strong> Required (startup fails) when <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
 </td>
-<td>admin</td>
+<td>*(none — startup fails if unset)</td>
 </tr>
 
 <!-- 33 -->

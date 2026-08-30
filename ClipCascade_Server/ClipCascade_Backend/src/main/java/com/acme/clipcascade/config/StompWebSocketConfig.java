@@ -4,6 +4,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
@@ -24,6 +25,18 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties) {
         this.clipCascadeProperties = clipCascadeProperties;
+    }
+
+    /**
+     * Enforces per-user isolation at the STOMP layer: clients may only
+     * SUBSCRIBE to their own "/user/queue/..." destinations and SEND to
+     * "/app/..." endpoints. Without this, an authenticated client could
+     * subscribe to "/queue/**" and receive other users' relayed clipboard
+     * messages.
+     */
+    @Override
+    public void configureClientInboundChannel(@NonNull ChannelRegistration registration) {
+        registration.interceptors(new StompDestinationAuthorizationInterceptor());
     }
 
     @Override

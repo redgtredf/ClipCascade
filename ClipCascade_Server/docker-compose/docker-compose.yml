@@ -2,10 +2,13 @@ version: '3.8'
 
 # # 🌐 GitHub Repository: https://github.com/Sathvik-Rao/ClipCascade
 # # 🐳 Docker Compose configuration for deploying ClipCascade Server.
-# # ⚠️ IMPORTANT: Update the default admin credentials after the first login.
-# # 🔑 Default admin credentials:
-# #       Username: admin
-# #       Password: admin123
+# # ⚠️ REQUIRED: Copy '.env.example' to '.env' (same folder) and fill in the
+# #    required credentials before starting. The server refuses to start
+# #    without them (fail-fast instead of insecure defaults):
+# #      - CC_ADMIN_USERNAME / CC_ADMIN_PASSWORD  (initial admin account,
+# #        created only when the user database is empty)
+# #      - CC_SERVER_DB_PASSWORD                  (encrypts the user database)
+# #      - CC_ALLOWED_ORIGINS                     (explicit, non-wildcard)
 # # Health check endpoint is available at http://localhost:8080/health
 
 services:
@@ -33,6 +36,12 @@ services:
       # - ./logs:/logs
 
     environment:
+      # # ⚠️ REQUIRED: initial admin account (created only when the user
+      # # database is empty). Set both in the '.env' file next to this compose
+      # # file (see '.env.example'). There is no default admin/admin123.
+      - CC_ADMIN_USERNAME=${CC_ADMIN_USERNAME:?Set CC_ADMIN_USERNAME in .env (initial admin username)}
+      - CC_ADMIN_PASSWORD=${CC_ADMIN_PASSWORD:?Set CC_ADMIN_PASSWORD in .env (initial admin password)}
+
       # # ⚙️ Sets the maximum message size (in MiB) that the server can handle.
       # # Examples usage:
       # #  On Android: Larger clipboard sizes are generally supported for images and files.
@@ -60,9 +69,10 @@ services:
       # - CC_P2P_STUN_URL=stun:stun.l.google.com:19302
 
       # # ⚙️ Specifies which domains are allowed to connect to the WebSocket (CORS policy).
-      # # Replace the URL with your ClipCascade server's domain.
-      # # If not set, all origins are allowed by default, which may be less secure.
-      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      # # ⚠️ REQUIRED: set this to the origin(s) users browse the dashboard from.
+      # # Wildcards ('*') are refused in production (allowed only with the
+      # # 'local-test' profile).
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:?Set CC_ALLOWED_ORIGINS in .env (e.g. http://localhost:8080 or https://clipcascade.example.com)}
 
       # # ⚙️ Toggle to enable or disable the signup feature/page for public users.
       # # Default: false
@@ -156,10 +166,10 @@ services:
       # - CC_SERVER_DB_USERNAME=clipcascade
 
       # # ⚙️ Sets a password for encrypting the user database. Default uses H2 file mode.
-      # # Replace `<file password>` and `<user password>` with secure values.
+      # # ⚠️ REQUIRED: set in '.env'. For H2 use the '<file password> <user password>'
+      # # format (two space-separated secrets).
       # # Once set, you must use the same password whenever you migrate the database.
-      # # Default password: `QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky`
-      # - CC_SERVER_DB_PASSWORD=QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (H2 format: <file password> <user password>)}
 
       # # ⚙️ Configures the database URL. Default uses H2 file mode.
       # # Example for PostgreSQL: jdbc:postgresql://localhost:5432/clipcascade
@@ -212,12 +222,12 @@ services:
       # - CC_BROKER_PORT=61613
 
       # # ⚙️ Configures the external STOMP broker username.
-      # # Default: admin
-      # - CC_BROKER_USERNAME=admin
+      # # ⚠️ REQUIRED when CC_EXTERNAL_BROKER_ENABLED=true (no default).
+      # - CC_BROKER_USERNAME=
 
       # # ⚙️ Configures the external STOMP broker password.
-      # # Default: admin
-      # - CC_BROKER_PASSWORD=admin
+      # # ⚠️ REQUIRED when CC_EXTERNAL_BROKER_ENABLED=true (no default).
+      # - CC_BROKER_PASSWORD=
 
       # # ------------------------------------------------- # #
       # #                  Private Settings                 # #

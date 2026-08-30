@@ -111,17 +111,19 @@ public class ClipCascadeProperties {
     private int brokerPort;
 
     /*
-     * External STOMP broker username (default: admin)
+     * External STOMP broker username (no default: startup fails when the external
+     * broker is enabled without explicit credentials)
      * Note: Ensure configuration is included in the activemq.xml file as well.
      */
-    @Value("${CC_BROKER_USERNAME:admin}")
+    @Value("${CC_BROKER_USERNAME:}")
     private String brokerUsername;
 
     /*
-     * External STOMP broker password (default: admin)
+     * External STOMP broker password (no default: startup fails when the external
+     * broker is enabled without explicit credentials)
      * Note: Ensure configuration is included in the activemq.xml file as well.
      */
-    @Value("${CC_BROKER_PASSWORD:admin}")
+    @Value("${CC_BROKER_PASSWORD:}")
     private String brokerPassword;
 
     /*
@@ -188,13 +190,13 @@ public class ClipCascadeProperties {
     private String serverDbUsername;
 
     /*
-     * Server database host (default: QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky)
+     * Server database password (no default: startup fails when unset or blank)
      * note: Ensure configuration is included in the application.properties file as
      * well.
      * 
      * <file password> and <user password> are for h2 file database
      */
-    @Value("${CC_SERVER_DB_PASSWORD:QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky}")
+    @Value("${CC_SERVER_DB_PASSWORD:}")
     private String serverDbPassword;
 
     /*
@@ -276,6 +278,25 @@ public class ClipCascadeProperties {
      */
     @Value("${CC_DONATIONS_ENABLED:false}")
     private boolean donationsEnabled;
+
+    /*
+     * Initial admin username (no default: startup fails when unset or blank).
+     * Only used to bootstrap the admin account when the user database is empty.
+     * note: Ensure configuration is included in the application.properties file as
+     * well.
+     */
+    @Value("${CC_ADMIN_USERNAME:}")
+    private String adminUsername;
+
+    /*
+     * Initial admin password (no default: startup fails when unset or blank).
+     * Only used to bootstrap the admin account when the user database is empty.
+     * Never logged or included in toString().
+     * note: Ensure configuration is included in the application.properties file as
+     * well.
+     */
+    @Value("${CC_ADMIN_PASSWORD:}")
+    private String adminPassword;
 
     private long getMessageSizeInBytes() {
         /*
@@ -459,6 +480,19 @@ public class ClipCascadeProperties {
         return donationsEnabled;
     }
 
+    public String getAdminUsername() {
+        return adminUsername;
+    }
+
+    public String getAdminPassword() {
+        return adminPassword;
+    }
+
+    /*
+     * Note: intentionally excludes serverDbUsername, serverDbPassword,
+     * brokerUsername, brokerPassword, adminUsername and adminPassword so that no
+     * secret (or secret-derived) value can leak into logs or the admin UI.
+     */
     @Override
     public String toString() {
         return "{\n" +

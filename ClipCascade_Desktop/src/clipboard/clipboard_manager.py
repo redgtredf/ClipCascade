@@ -9,6 +9,11 @@ import xxhash
 from PIL import Image
 from core.constants import *
 from core.config import Config
+from core.document_safety import (
+    DocumentNameError,
+    sanitize_received_filenames,
+    save_received_files,
+)
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -54,6 +59,9 @@ class ClipboardManager:
             self.is_files_download_enabled = False
             if self.sys_tray:
                 self.sys_tray.disable_files_download()
+
+    sanitize_received_filenames = staticmethod(sanitize_received_filenames)
+    save_received_files = staticmethod(save_received_files)
 
     @staticmethod
     def hash_clipboard(clipboard: str) -> int:

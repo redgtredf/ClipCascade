@@ -8,6 +8,11 @@ import uuid
 from threading import Lock, Thread
 from typing import Dict, List, Optional
 from core.config import Config
+from core.fragment_utils import (
+    is_valid_fragment_metadata,
+    max_total_fragments,
+    utf8_safe_chunks,
+)
 from interfaces.ws_interface import WSInterface
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
@@ -794,12 +799,38 @@ class P2PManager(WSInterface):
 
             # Fragmented message handling
             if metadata is not None and metadata["isFragmented"]:
+                total_fragments = metadata["totalFragments"]
+                fragment_index = metadata["index"]
+
+                # Validate remote metadata before allocating anything: a
+                # malicious peer must not be able to dictate an arbitrary
+                # pre-allocation size or an out-of-range index.
+                if not is_valid_fragment_metadata(total_fragments, fragment_index):
+                    self.reset_receiving_fragments()
+                    logging.error(
+                        "Failed to receive: invalid fragment metadata "
+                        f"(index={fragment_index!r}, totalFragments={total_fragments!r}); dropping stream."
+                    )
+                    return
+
+                max_allowed_fragments = max_total_fragments(
+                    FRAGMENT_SIZE,
+                    self.config.data["max_clipboard_size_local_limit_bytes"],
+                )
+                if total_fragments > max_allowed_fragments:
+                    self.reset_receiving_fragments()
+                    logging.error(
+                        "Failed to receive: declared totalFragments "
+                        f"{total_fragments} exceeds the allowed maximum of {max_allowed_fragments}; dropping stream."
+                    )
+                    return
+
                 self.receiving_fragment_stats = (
-                    f"{metadata['index'] + 1}/{metadata['totalFragments']}"
+                    f"{fragment_index + 1}/{total_fragments}"
                 )
                 if metadata["id"] in self.receiving_fragments:
-                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
-                    if metadata["index"] == metadata["totalFragments"] - 1:
+                    self.receiving_fragments[metadata["id"]][fragment_index] = payload
+                    if fragment_index == total_fragments - 1:
                         if all(s != "" for s in self.receiving_fragments[metadata["id"]]):
                             payload = "".join(self.receiving_fragments[metadata["id"]])
                         else:
@@ -812,8 +843,8 @@ class P2PManager(WSInterface):
                         return
                 else:
                     self.reset_receiving_fragments()
-                    self.receiving_fragments[metadata["id"]] = [""] * metadata["totalFragments"]
-                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
+                    self.receiving_fragments[metadata["id"]] = [""] * total_fragments
+                    self.receiving_fragments[metadata["id"]][fragment_index] = payload
                     return
 
             if self.config.data["cipher_enabled"]:
@@ -836,6 +867,10 @@ class P2PManager(WSInterface):
         """
         Splits a string into a list of fragments, each with a maximum size of `fragment_size` bytes.
 
+        Fragments are cut on UTF-8 codepoint boundaries, so multi-byte
+        characters are never dropped or corrupted, and concatenating the
+        fragments in order reproduces `s` exactly.
+
         Args:
             s (str): The string to fragment.
             fragment_size (int): The maximum size of each fragment in bytes.
@@ -843,13 +878,7 @@ class P2PManager(WSInterface):
         Returns:
             list[str]: A list of string fragments.
         """
-        # Encode the string to bytes to accurately split by byte size
-        s_bytes = s.encode("utf-8")
-        fragments = [
-            s_bytes[i : i + fragment_size].decode("utf-8", errors="ignore")
-            for i in range(0, len(s_bytes), fragment_size)
-        ]
-        return fragments
+        return utf8_safe_chunks(s, fragment_size)
 
     @staticmethod
     def parse_ice_candidate_line(candidate_line: str) -> dict:

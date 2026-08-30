@@ -9,6 +9,7 @@ from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
 from core.config import Config
+from core.document_safety import save_received_files
 from gui.info import CustomDialog
 from core.constants import *
 
@@ -41,6 +42,7 @@ class TaskbarPanel:
         self.disconnecting_items = None
         self.is_file_download_enabled = False
         self.file_download_items = None
+        self.pending_files = None
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
@@ -320,6 +322,7 @@ class TaskbarPanel:
 
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
+        self.pending_files = files
         self.icon.icon = self.create_clipboard_icon_with_dot()
         self.file_download_items = (
             "📥 Download File(s)",
@@ -331,11 +334,20 @@ class TaskbarPanel:
     def disable_files_download(self):
         self.is_file_download_enabled = False
         self.file_download_items = None
+        self.clear_pending_files()
         self.icon.icon = self.create_clipboard_icon()
         self.update_menu()
 
+    def clear_pending_files(self):
+        """
+        Releases the in-memory pending document payload.
+        """
+        if self.pending_files is not None:
+            self.pending_files.clear()
+        self.pending_files = None
+
     def _on_download(self, icon, item, files):
-        """Download the files to the user's Downloads folder."""
+        """Download the files to the user's chosen directory (path-safety validated)."""
         try:
             try:
                 if self.config.data["default_file_download_location"] != "":
@@ -366,12 +378,11 @@ class TaskbarPanel:
                     timeout=5000,
                 ).mainloop()
 
-            # Save each file to the chosen directory
-            for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
+            written = save_received_files(files, target_directory)
+            for file_path in written:
                 logging.debug(f"Saved: {file_path}")
+            self.clear_pending_files()
+            self.disable_files_download()
 
         except Exception as e:
             msg = f"An error occurred while downloading files. Error: {e}"
@@ -385,6 +396,7 @@ class TaskbarPanel:
         try:
             if self.on_logoff_callback:
                 self.on_logoff_callback()
+            self.clear_pending_files()
             self.icon.stop()
             self.root.quit()
         except Exception as e:
@@ -393,5 +405,6 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_quit(self, icon, item):
+        self.clear_pending_files()
         self.icon.stop()
         self.root.quit()

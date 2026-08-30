@@ -8,6 +8,7 @@ import webbrowser
 from cli.echo import Echo
 from cli.info import CustomDialog
 from core.config import Config
+from core.document_safety import save_received_files
 from core.constants import *
 from itertools import count
 
@@ -41,6 +42,7 @@ class TaskbarPanel:
         self.disconnecting_items = None
         self.is_file_download_enabled = False
         self.file_download_items = None
+        self.pending_files = None
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
@@ -298,6 +300,7 @@ class TaskbarPanel:
 
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
+        self.pending_files = files
         self.file_download_items = (
             "📥 Download File(s)",
             0,
@@ -308,7 +311,16 @@ class TaskbarPanel:
     def disable_files_download(self):
         self.is_file_download_enabled = False
         self.file_download_items = None
+        self.clear_pending_files()
         self.update_menu()
+
+    def clear_pending_files(self):
+        """
+        Releases the in-memory pending document payload.
+        """
+        if self.pending_files is not None:
+            self.pending_files.clear()
+        self.pending_files = None
 
     def _on_download(self, files):
         try:
@@ -337,12 +349,11 @@ class TaskbarPanel:
             CustomDialog(
                 f"Saving files to: {target_directory}", msg_type="info"
             ).mainloop()
-            # Save each file to the chosen directory
-            for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
+            written = save_received_files(files, target_directory)
+            for file_path in written:
                 logging.debug(f"Saved: {file_path}")
+            self.clear_pending_files()
+            self.disable_files_download()
             CustomDialog("Done.", msg_type="success").mainloop()
 
         except Exception as e:
@@ -357,6 +368,7 @@ class TaskbarPanel:
         try:
             if self.on_logoff_callback:
                 self.on_logoff_callback()
+            self.clear_pending_files()
             self._on_quit()
         except Exception as e:
             CustomDialog(
@@ -364,4 +376,5 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_quit(self):
+        self.clear_pending_files()
         self.loop_terminate = True
