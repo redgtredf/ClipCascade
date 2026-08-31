@@ -3,6 +3,11 @@ import json
 import os
 import re
 from core.constants import *
+from utils import secret_store
+
+# Credentials that must never sit in plaintext next to the executable; on
+# Windows they are DPAPI-wrapped by utils/secret_store before hitting disk.
+_PROTECTED_KEYS = ("hashed_password", "cookie", "csrf_token", "password")
 
 
 class Config:
@@ -45,6 +50,9 @@ class Config:
                 temp["hashed_password"] = base64.b64encode(
                     temp["hashed_password"]
                 ).decode("utf-8")
+            for key in _PROTECTED_KEYS:
+                if key in temp:
+                    temp[key] = secret_store.protect(temp[key])
             with open(self.file_name, "w") as f:
                 json.dump(temp, f, indent=4)
         except Exception as e:
@@ -59,8 +67,11 @@ class Config:
                 with open(self.file_name, "r") as f:
                     file_data = json.load(f)
                     self.data.update(file_data)
+                for key in _PROTECTED_KEYS:
+                    if key in self.data:
+                        self.data[key] = secret_store.unprotect(self.data[key])
                 # Decode hashed_password if present
-                if self.data.get("hashed_password"):
+                if isinstance(self.data.get("hashed_password"), str):
                     self.data["hashed_password"] = base64.b64decode(
                         self.data["hashed_password"]
                     )

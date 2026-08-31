@@ -183,10 +183,17 @@ def build_aad(
     direction: str,
     created_at_utc: int,
     schema_version: int = SCHEMA_VERSION,
+    field: str = None,
 ) -> bytes:
     """Deterministic additional authenticated data: schema version, entry UUID,
     payload type, direction and creation timestamp, length-prefixed so no
-    concatenation ambiguity exists between fields."""
+    concatenation ambiguity exists between fields.
+
+    `field` additionally binds a ciphertext to the exact column it belongs to
+    ("summary", "payload", "source_device", ...): without it every field of
+    one entry shares identical AAD, so a ciphertext swapped between columns
+    (summary blob moved into the payload column) would still authenticate.
+    Omitting `field` reproduces the original (un-fielded) byte format."""
     parts = [
         struct.pack(">I", schema_version),
         _length_prefixed(entry_id.encode("utf-8")),
@@ -194,6 +201,8 @@ def build_aad(
         _length_prefixed(direction.encode("utf-8")),
         struct.pack(">q", created_at_utc),
     ]
+    if field is not None:
+        parts.append(_length_prefixed(field.encode("utf-8")))
     return b"".join(parts)
 
 

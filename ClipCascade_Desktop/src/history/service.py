@@ -217,8 +217,10 @@ class HistoryService:
 
     # --- crypto helpers ----------------------------------------------------
 
-    def _aad_for_row(self, row: dict) -> bytes:
-        return crypto.build_aad(row["id"], row["payload_type"], row["direction"], row["created_at_utc"])
+    def _aad_for_row(self, row: dict, field: str = None) -> bytes:
+        return crypto.build_aad(
+            row["id"], row["payload_type"], row["direction"], row["created_at_utc"], field=field
+        )
 
     # --- capture -------------------------------------------------------
 
@@ -228,8 +230,8 @@ class HistoryService:
 
         entry_id = store_mod.new_entry_id()
         created_at = int(event.occurred_at_utc.timestamp())
-        aad_of = lambda payload_type: crypto.build_aad(  # noqa: E731
-            entry_id, payload_type, event.direction, created_at
+        aad_of = lambda payload_type, field: crypto.build_aad(  # noqa: E731
+            entry_id, payload_type, event.direction, created_at, field=field
         )
 
         encrypted_payload = None
@@ -241,13 +243,13 @@ class HistoryService:
         if event.payload_type == "text":
             text = event.payload
             payload_type = classify_text(text)
-            aad = aad_of(payload_type)
+            aad = aad_of(payload_type, "payload")
             summary = {"preview": text[:_SUMMARY_TEXT_PREVIEW_CHARS]}
             encrypted_payload = crypto.encrypt_field(self._key, text.encode("utf-8"), aad)
             fingerprint_input = _fingerprint_input(payload_type, event.direction, text.encode("utf-8"), event.source_device_id)
         elif event.payload_type == "image":
             payload_type = "image"
-            aad = aad_of(payload_type)
+            aad = aad_of(payload_type, "blob")
             image_bytes = event.payload
             width, height = _image_dimensions(image_bytes)
             summary = {"width": width, "height": height, "byte_size": len(image_bytes)}
@@ -257,7 +259,7 @@ class HistoryService:
             fingerprint_input = _fingerprint_input(payload_type, event.direction, image_bytes, event.source_device_id)
         elif event.payload_type == "files":
             payload_type = "files"
-            aad = aad_of(payload_type)
+            aad = aad_of(payload_type, "blob")
             files = event.payload
             names = sorted(files.keys())
             summary = {
@@ -278,7 +280,7 @@ class HistoryService:
             raise ValueError(f"Unsupported capture payload_type: {event.payload_type!r}")
 
         summary_bytes = json.dumps(summary, separators=(",", ":")).encode("utf-8")
-        encrypted_summary = crypto.encrypt_field(self._key, summary_bytes, aad)
+        encrypted_summary = crypto.encrypt_field(self._key, summary_bytes, aad_of(payload_type, "summary"))
 
         byte_size = len(encrypted_summary)
         byte_size += len(encrypted_payload) if encrypted_payload else 0
@@ -290,7 +292,9 @@ class HistoryService:
             source_device_id_hash = crypto.fingerprint(event.source_device_id.encode("utf-8"))
         if event.source_device_name:
             encrypted_source_device = crypto.encrypt_field(
-                self._key, event.source_device_name.encode("utf-8"), aad
+                self._key,
+                event.source_device_name.encode("utf-8"),
+                aad_of(payload_type, "source_device"),
             )
 
         row = {
@@ -318,12 +322,15 @@ class HistoryService:
     # --- query/detail ----------------------------------------------------
 
     def _to_summary(self, row: dict) -> models.HistoryEntrySummary:
-        aad = self._aad_for_row(row)
-        summary = json.loads(crypto.decrypt_field(self._key, row["encrypted_summary"], aad).decode("utf-8"))
+        summary = json.loads(
+            crypto.decrypt_field(
+                self._key, row["encrypted_summary"], self._aad_for_row(row, "summary")
+            ).decode("utf-8")
+        )
         source_device_name = None
         if row["encrypted_source_device"]:
             source_device_name = crypto.decrypt_field(
-                self._key, row["encrypted_source_device"], aad
+                self._key, row["encrypted_source_device"], self._aad_for_row(row, "source_device")
             ).decode("utf-8")
         return models.HistoryEntrySummary(
             id=row["id"],
@@ -365,8 +372,11 @@ class HistoryService:
         if row is None:
             return None
         summary = self._to_summary(row)
-        aad = self._aad_for_row(row)
-        summary_json = json.loads(crypto.decrypt_field(self._key, row["encrypted_summary"], aad).decode("utf-8"))
+        summary_json = json.loads(
+            crypto.decrypt_field(
+                self._key, row["encrypted_summary"], self._aad_for_row(row, "summary")
+            ).decode("utf-8")
+        )
 
         text = None
         url = None
@@ -375,14 +385,18 @@ class HistoryService:
         downloaded_directory = None
 
         if row["payload_type"] in ("text", "link") and row["encrypted_payload"]:
-            decrypted = crypto.decrypt_field(self._key, row["encrypted_payload"], aad).decode("utf-8")
+            decrypted = crypto.decrypt_field(
+                self._key, row["encrypted_payload"], self._aad_for_row(row, "payload")
+            ).decode("utf-8")
             if row["payload_type"] == "link":
                 url = decrypted
             else:
                 text = decrypted
         elif row["payload_type"] == "image" and row["blob_relative_path"]:
             encrypted_blob = self._store.read_blob(row["blob_relative_path"])
-            image_bytes = crypto.decrypt_field(self._key, encrypted_blob, aad)
+            image_bytes = crypto.decrypt_field(
+                self._key, encrypted_blob, self._aad_for_row(row, "blob")
+            )
         elif row["payload_type"] == "files":
             files = tuple(
                 models.FileBatchItem(name=item["name"], size_bytes=item["size_bytes"])
@@ -391,7 +405,9 @@ class HistoryService:
 
         if row["downloaded_directory_encrypted"]:
             downloaded_directory = crypto.decrypt_field(
-                self._key, row["downloaded_directory_encrypted"], aad
+                self._key,
+                row["downloaded_directory_encrypted"],
+                self._aad_for_row(row, "downloaded_directory"),
             ).decode("utf-8")
 
         summary_fields = {f.name: getattr(summary, f.name) for f in dataclasses.fields(summary)}
@@ -415,9 +431,10 @@ class HistoryService:
             raise ValueError(f"{entry_id} is not a files entry")
         if not row["blob_relative_path"]:
             raise ValueError(f"{entry_id} has no retrievable transfer bytes (state={row['file_state']!r})")
-        aad = self._aad_for_row(row)
         encrypted_blob = self._store.read_blob(row["blob_relative_path"])
-        packed = crypto.decrypt_field(self._key, encrypted_blob, aad)
+        packed = crypto.decrypt_field(
+            self._key, encrypted_blob, self._aad_for_row(row, "blob")
+        )
         return _unpack_files(packed)
 
     # --- commands --------------------------------------------------------
@@ -479,8 +496,9 @@ class HistoryService:
         directory = os.path.normpath(command.downloaded_directory)
         if not os.path.isdir(directory):
             return models.CommandResult(ok=False, entry_id=command.entry_id, error="directory-missing")
-        aad = self._aad_for_row(row)
-        encrypted_dir = crypto.encrypt_field(self._key, directory.encode("utf-8"), aad)
+        encrypted_dir = crypto.encrypt_field(
+            self._key, directory.encode("utf-8"), self._aad_for_row(row, "downloaded_directory")
+        )
         self._store.set_file_state(
             command.entry_id,
             "downloaded",
