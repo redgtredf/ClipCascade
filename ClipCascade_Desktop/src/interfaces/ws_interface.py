@@ -1,7 +1,12 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from cli.tray import TaskbarPanel
 from core.config import Config
+
+if TYPE_CHECKING:
+    # Type-only: importing the CLI tray at runtime here would drag CLI-only
+    # dependencies into every platform build that imports this interface.
+    from cli.tray import TaskbarPanel
 
 
 class WSInterface(ABC):
@@ -31,7 +36,7 @@ class WSInterface(ABC):
         pass
 
     @abstractmethod
-    def set_tray_ref(self, sys_tray: TaskbarPanel):
+    def set_tray_ref(self, sys_tray: "TaskbarPanel"):
         """This method must be implemented in subclasses."""
         pass
 

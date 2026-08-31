@@ -1,5 +1,7 @@
 import json
 import logging
+import random
+import threading
 import time
 
 
@@ -19,6 +21,15 @@ if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
 else:
     from gui.tray import TaskbarPanel
 
+# Exponential backoff for automatic reconnects: start fast so a brief network
+# blip is invisible, grow so a down server is not hammered in lockstep by
+# every client (stampede), with jitter to de-synchronise reconnect attempts.
+RECONNECT_BACKOFF_INITIAL_S = 1.0
+RECONNECT_BACKOFF_FACTOR = 2.0
+RECONNECT_BACKOFF_MAX_S = 60.0
+RECONNECT_BACKOFF_JITTER_S = 0.5
+RECEIVE_FAILURE_NOTIFY_INTERVAL_S = 60.0
+
 
 class STOMPManager(WSInterface):
     def __init__(self, config: Config, is_login_phase=True, history_sink=None):
@@ -35,6 +46,10 @@ class STOMPManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
+        self._reconnect_attempts = 0
+        self._reconnect_scheduled = False
+        self._reconnect_lock = threading.Lock()
+        self._reconnect_timer = None
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -79,6 +94,7 @@ class STOMPManager(WSInterface):
             # logging.info("Websocket connected")
             self.is_connected = True
             self.is_auto_reconnecting = False
+            self._reset_reconnect_state()
             if not self.first_conn_lost:
                 self.first_conn_lost = True
                 self.notification_manager.notify(
@@ -96,17 +112,59 @@ class STOMPManager(WSInterface):
 
     def _on_close(self):
         self.is_connected = False
-        # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
-            self.is_auto_reconnecting = True
-            if self.first_conn_lost:
-                self.notification_manager.notify(
-                    title=f"{APP_NAME}: WebSocket Connection Lost ⛓️‍💥",
-                    message="Check your internet connection. Retrying...",
+            self._schedule_reconnect()
+
+    def _reset_reconnect_state(self):
+        with self._reconnect_lock:
+            self._reconnect_attempts = 0
+            self._reconnect_scheduled = False
+            timer, self._reconnect_timer = self._reconnect_timer, None
+        if timer is not None:
+            timer.cancel()
+
+    def _schedule_reconnect(self, delay_s=None):
+        """Single-flight reconnect scheduling with exponential backoff.
+
+        The guard matters: the websocket close callback, a failed connect()
+        and manual_reconnect() can all race to schedule the next attempt;
+        without it every failure would stack another retry thread (the
+        stampede)."""
+        with self._reconnect_lock:
+            if self._reconnect_scheduled:
+                return
+            if delay_s is None:
+                delay_s = min(
+                    RECONNECT_BACKOFF_INITIAL_S
+                    * (RECONNECT_BACKOFF_FACTOR ** self._reconnect_attempts),
+                    RECONNECT_BACKOFF_MAX_S,
                 )
-                self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
-            self.connect()
+                delay_s += random.uniform(0.0, RECONNECT_BACKOFF_JITTER_S)
+            self._reconnect_scheduled = True
+            self._reconnect_attempts += 1
+            timer = threading.Timer(delay_s, self._reconnect_now)
+            timer.daemon = True
+            self._reconnect_timer = timer
+        timer.start()
+
+    def _reconnect_now(self):
+        with self._reconnect_lock:
+            self._reconnect_scheduled = False
+            self._reconnect_timer = None
+        if self.is_login_phase or self.disconnected:
+            self._reset_reconnect_state()
+            return
+        self.is_auto_reconnecting = True
+        if self.first_conn_lost:
+            self.first_conn_lost = False
+            self.notification_manager.notify(
+                title=f"{APP_NAME}: WebSocket Connection Lost ⛓️‍💥",
+                message="Check your internet connection. Retrying...",
+            )
+        ok, _ = self.connect()
+        if not ok:
+            # backoff grows with every consecutive failure
+            self._schedule_reconnect()
 
     def send(self, payload: str, payload_type: str = "text"):
         try:
@@ -152,24 +210,50 @@ class STOMPManager(WSInterface):
             logging.error(
                 "If cipher is enabled, please make sure it is enabled on all devices"
             )
+            self._notify_receive_failure(
+                "Invalid clipboard data received",
+                "If encryption is enabled, make sure it is enabled on all devices",
+            )
         except Exception as e:
             logging.error(f"Failed to receive data: {e}")
+            self._notify_receive_failure(
+                "Invalid clipboard data received",
+                "The clipboard payload could not be processed",
+            )
+
+    def _notify_receive_failure(self, title, message):
+        """Surface a receive-path failure to the user, rate-limited so a
+        stream of bad frames cannot spam notifications; returns silently when
+        notifications are unavailable."""
+        now = time.monotonic()
+        last = getattr(self, "_last_receive_failure_notify_s", None)
+        if last is not None and now - last < RECEIVE_FAILURE_NOTIFY_INTERVAL_S:
+            return
+        self._last_receive_failure_notify_s = now
+        try:
+            self.notification_manager.notify(title=f"{APP_NAME}: {title}", message=message)
+        except Exception:
+            logging.exception("Failed to show receive-failure notification")
 
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
             self.disconnected = False
-            self.connect()
+            if self.is_connected:
+                return
+            self._reset_reconnect_state()
+            self._schedule_reconnect(delay_s=0.0)
 
     def disconnect(self):
         try:
             self.clipboard_manager.previous_clipboard_hash = 0
             self.disconnected = True
             self.first_conn_lost = True
+            self._reset_reconnect_state()
             try:
                 self.client.disconnect()
                 self.is_connected = False
                 logging.info("Websocket disconnected")
-            except Exception as e:
+            except Exception:
                 pass  # silent catch
             self.clipboard_manager.stop()
         except Exception as e:

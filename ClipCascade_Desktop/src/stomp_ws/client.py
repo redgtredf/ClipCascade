@@ -1,13 +1,19 @@
 import time
 from threading import Thread
 
-from .frame import Frame
+from .frame import Frame, MalformedFrameError
 import websocket
 import logging
 
 from core.constants import *
 
 VERSIONS = "1.0,1.1"
+
+# Total-size ceiling for one incoming STOMP frame. The P2S server enforces
+# its own configurable message limit (default 1 MiB); this client-side cap
+# is the last line of defence against a hostile/buggy peer sending an
+# unbounded frame, which would otherwise be buffered fully in memory.
+MAX_INCOMING_FRAME_BYTES = 64 * 1024 * 1024
 
 
 class Client:
@@ -70,8 +76,24 @@ class Client:
             logging.debug("Sent heartbeat frame")
             return
 
+        if len(message) > MAX_INCOMING_FRAME_BYTES:
+            logging.error(
+                "Incoming STOMP frame of %d bytes exceeds the client cap; closing connection",
+                len(message),
+            )
+            self.ws.close()
+            return
+
         logging.debug("\n<<< " + str(message))
-        frame = Frame.unmarshall_single(message)
+        try:
+            frame = Frame.unmarshall_single(message)
+        except MalformedFrameError as error:
+            # A malformed frame means the peer is hostile or desynchronised;
+            # parsing on would be operating on garbage. Close the connection
+            # (the reconnect logic owns what happens next).
+            logging.error("Malformed STOMP frame received; closing connection: %s", error)
+            self.ws.close()
+            return
         _results = []
         if frame.command == "CONNECTED":
             self.connected = True

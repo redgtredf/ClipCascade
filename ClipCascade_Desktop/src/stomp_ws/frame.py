@@ -1,6 +1,8 @@
-from urllib.parse import urlparse
-
 Byte = {"LF": "\x0A", "NULL": "\x00"}
+
+
+class MalformedFrameError(ValueError):
+    """A received frame does not follow the STOMP wire format."""
 
 
 class Frame:
@@ -28,20 +30,34 @@ class Frame:
 
     @staticmethod
     def unmarshall_single(data):
+        if not isinstance(data, str) or not data:
+            raise MalformedFrameError("empty frame")
+
         lines = data.split(Byte["LF"])
 
         command = lines[0].strip()
+        if not command:
+            raise MalformedFrameError("missing command")
+
         headers = {}
 
-        # get all headers
+        # get all headers, up to the blank separator line; a frame without
+        # one is malformed, not an IndexError
         i = 1
-        while lines[i] != "":
-            # get key, value from raw header
-            (key, value) = lines[i].split(":", 1)
+        while i < len(lines) and lines[i] != "":
+            header = lines[i]
+            if ":" not in header:
+                raise MalformedFrameError("header line without ':' separator")
+            (key, value) = header.split(":", 1)
             headers[key] = value
             i += 1
+        if i >= len(lines):
+            raise MalformedFrameError("missing header/body separator")
 
-        # set body to None if there is no body
+        # set body to None if there is no body; a missing body section is
+        # malformed, not an IndexError
+        if i + 1 >= len(lines):
+            raise MalformedFrameError("missing body section")
         body = None if lines[i + 1] == Byte["NULL"] else lines[i + 1][:-1]
 
         return Frame(command, headers, body)
