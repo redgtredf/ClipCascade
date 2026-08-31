@@ -31,11 +31,20 @@ class NotificationManager:
                 elif PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
                     CustomDialog(f"{title} : {message}").mainloop()
                 elif PLATFORM == MACOS:
+                    # Values pass as argv to the `run` handler, never
+                    # interpolated into the script: clipboard-derived or
+                    # otherwise hostile text can never break out of the
+                    # AppleScript string and execute.
                     subprocess.run(
                         [
                             "osascript",
                             "-e",
-                            f'display notification "{message}" with title "{title}"',
+                            "on run argv\n"
+                            "display notification (item 2 of argv) "
+                            "with title (item 1 of argv)\n"
+                            "end run",
+                            title,
+                            message,
                         ]
                     )
             except Exception as e:

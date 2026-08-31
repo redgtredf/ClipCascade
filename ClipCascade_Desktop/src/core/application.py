@@ -258,16 +258,22 @@ class Application:
             # Create the lock file
             try:
                 self.create_lock_file()
-            except IOError:
+            except OSError:
+                if self.lock_file is not None:
+                    self.lock_file.close()
+                    self.lock_file = None
                 run_anyway = MessageBox().askquestion(
                     "ClipCascade",
                     "Another instance of ClipCascade is already running. Do you want to run anyway?",
                 )
                 if run_anyway == "yes":
-                    os.remove(self.mutex_identifier)
-                    self.create_lock_file()
-                else:
+                    # Run WITHOUT the lock. The lock file itself must never be
+                    # deleted here: unlinking it lets every future instance
+                    # create a fresh file and flock that, while the original
+                    # holder still runs on the old inode — the two-instance
+                    # race this guard exists to prevent.
                     self.lock_file = None
+                else:
                     sys.exit(0)
 
     def create_lock_file(self, path=None):
@@ -275,7 +281,9 @@ class Application:
             path = self.mutex_identifier
 
         if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
-            self.lock_file = open(path, "w")
+            # Append mode: opening with "w" would truncate a lock file that
+            # another running instance currently holds.
+            self.lock_file = open(path, "a")
             fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def authenticate_and_connect(self):
@@ -298,8 +306,14 @@ class Application:
                 and self.config.data["cipher_enabled"] == False
                 and not used_saved_credentials
             ):
-                # Attempt to connect with password when using saved credentials
+                # Attempt to connect with password when using saved credentials.
+                # The saved password is stored in RAW form (the login tooltip's
+                # documented behaviour); hash it exactly once for the POST.
                 used_saved_credentials = True
+                raw_password = self.config.data["password"]
+                self.config.data["password"] = (
+                    CipherManager.string_to_sha3_512_lowercase_hex(raw_password)
+                )
             else:
                 display_login_success_dialog = True
                 self.config.data["password"] = ""  # Clear the password
@@ -344,7 +358,14 @@ class Application:
                         self.config.data["hashed_password"] = (
                             self.cipher_manager.hash_password(raw_password)
                         )
-                    if not self.config.data["save_password"]:
+                    if self.config.data["save_password"]:
+                        # Store the RAW password (the tooltip's documented
+                        # behaviour; DPAPI-wrapped at rest on Windows). Storing
+                        # the hashed form here made the prefilled login form
+                        # double-hash on click-through, which failed login and
+                        # looped.
+                        self.config.data["password"] = raw_password
+                    else:
                         self.config.data["password"] = ""
                     if display_login_success_dialog:
                         CustomDialog(

@@ -125,10 +125,16 @@ class LoginForm(tk.Tk):
         pass_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.password_frame = ttk.Frame(self.field_frame)
         self.password_frame.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        # Never prefill a legacy stored hash: an unchanged click-through would
+        # hash it a second time, fail login and loop (fixed storage now keeps
+        # the raw password; this guard migrates configs saved by old builds).
+        stored_password = self.config.data["password"]
+        if stored_password and LoginForm.looks_like_sha3_hex(stored_password):
+            stored_password = ""
         self.password_entry = ttk.Entry(
             self.password_frame, show="*", width=47, font=("Helvetica", 13)
         )
-        self.password_entry.insert(0, self.config.data["password"])
+        self.password_entry.insert(0, stored_password)
         self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.eye_icon = ttk.Label(
@@ -630,6 +636,15 @@ class LoginForm(tk.Tk):
             return True
         else:
             return False
+
+    @staticmethod
+    def looks_like_sha3_hex(value):
+        """True for a 128-char lowercase hex digest (legacy stored hash)."""
+        return (
+            isinstance(value, str)
+            and len(value) == 128
+            and all(c in "0123456789abcdef" for c in value)
+        )
 
     def on_login(self):
         # save data to config

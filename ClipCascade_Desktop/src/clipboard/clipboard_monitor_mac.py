@@ -1,4 +1,3 @@
-from io import BytesIO
 import logging
 import threading
 import time
@@ -23,16 +22,21 @@ def write_to_pasteboard(data, pb_type):
 
 def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
     global _first_run, _block_image_once
-    try:
-        pb_text = pasteboard.Pasteboard()
-        if enable_image_monitoring:
-            pb_image_png = pasteboard.Pasteboard()
-            pb_image_tiff = pasteboard.Pasteboard()
-        if enable_file_monitoring:
-            pb_files = pasteboard.Pasteboard()
-        image_processed = False
-        files_processed = False
-        while _run:
+    pb_text = pasteboard.Pasteboard()
+    if enable_image_monitoring:
+        pb_image_png = pasteboard.Pasteboard()
+        pb_image_tiff = pasteboard.Pasteboard()
+    if enable_file_monitoring:
+        pb_files = pasteboard.Pasteboard()
+    image_processed = False
+    files_processed = False
+    while _run:
+        # One failed poll (a pasteboard hiccup, a transient macOS API error)
+        # must never kill the monitor permanently: each iteration is guarded,
+        # logged and retried. Without this, the first exception ended the
+        # loop while _run stayed True and clipboard monitoring silently
+        # stopped for the rest of the session.
+        try:
             # don't change the execution order (files,text,image or files,image,text)
 
             if enable_file_monitoring:
@@ -52,7 +56,7 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
             with _pasteboard_lock:
                 clipboard_text = pb_text.get_contents(
                     type=pasteboard.String, diff=True
-                ) # If True, retrieves and returns the content only if it has changed since the last call.
+                )  # If True, retrieves and returns the content only if it has changed since the last call.
                 # This approach is efficient even in cases of frequent polling.
             if (
                 clipboard_text is not None
@@ -96,14 +100,13 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
                         else:
                             if not files_processed:
                                 _callback_update("image", clipboard_image_tiff)
+        except Exception as e:
+            logging.error(f"Error processing clipboard update: {e}")
 
-            files_processed = False
-            image_processed = False
-            _first_run = False
-            time.sleep(0.3)  # seconds
-
-    except Exception as e:
-        logging.error(f"Error processing clipboard update: {e}")
+        files_processed = False
+        image_processed = False
+        _first_run = False
+        time.sleep(0.3)  # seconds
 
 
 def _start(enable_image_monitoring=False, enable_file_monitoring=False):

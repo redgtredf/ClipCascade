@@ -37,13 +37,6 @@ class LoginForm:
     def str_to_bool(value):
         return value.lower().strip() == "y"
 
-    @staticmethod
-    def is_positive_integer(value):
-        if value.isdigit() and int(value) > 0:
-            return True
-        else:
-            return False
-
     def mainloop(self):
         # save data to config
         self.config.data["username"] = (
@@ -51,7 +44,13 @@ class LoginForm:
             or self.config.data["username"]
         )
 
-        self.config.data["password"] = getpass.getpass("password: ")
+        # an empty password can never authenticate; keep asking instead of
+        # hashing "" and failing the login round-trip
+        while True:
+            entered = getpass.getpass("password: ")
+            if entered:
+                self.config.data["password"] = entered
+                break
 
         server_url = (
             input(f"server url [{self.config.data['server_url']}]: ")
