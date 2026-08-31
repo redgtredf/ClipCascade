@@ -4,7 +4,6 @@ import io
 
 import pytest
 
-from clipboard.clipboard_manager import ClipboardManager
 from core.document_safety import DocumentNameError, save_received_files, sanitize_received_filenames
 
 
