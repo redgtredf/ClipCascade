@@ -169,7 +169,7 @@ services:
       # # ⚠️ REQUIRED: set in '.env'. For H2 use the '<file password> <user password>'
       # # format (two space-separated secrets).
       # # Once set, you must use the same password whenever you migrate the database.
-      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (H2 format: <file password> <user password>)}
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set CC_SERVER_DB_PASSWORD in .env (H2 format - two space-separated secrets)}
 
       # # ⚙️ Configures the database URL. Default uses H2 file mode.
       # # Example for PostgreSQL: jdbc:postgresql://localhost:5432/clipcascade
