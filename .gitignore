@@ -10,3 +10,4 @@ __pycache__/
 # tool caches
 .pytest_cache/
 .ruff_cache/
+.env.bak-*
