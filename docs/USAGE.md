@@ -20,6 +20,26 @@ ClipCascade syncs your clipboard across your devices in real time. Copy on your 
 3. **Copy anything** — text, images, files. It is sent automatically to your other signed-in devices, which receive it as a notification / directly into their clipboard depending on platform behavior.
 4. **Paste** on the other device as normal.
 
+### Clipboard history (Windows)
+
+The Windows desktop client keeps an optional, private clipboard history. It is **local only** — encrypted at rest on your PC, never uploaded, never synced (details in [windows-history-data.md](windows-history-data.md)).
+
+**Opening it** — three ways:
+1. Tray menu → **🕘 Open history**
+2. Tray double-click (when no file download is waiting — the download shortcut keeps priority)
+3. The **Ctrl+Alt+V** hotkey — opt-in on the login screen's settings (off by default; if another app already uses the combination you get one notice and the tray path keeps working)
+
+**What you can do with an entry:**
+
+| Entry type | Actions |
+|---|---|
+| Text | Copy again, pin, delete |
+| Link | Copy link, **Open in browser** (asks once per untrusted hostname; HTTPS can be remembered, HTTP always warns but still opens), pin, delete |
+| Image | Copy again, Save as…, pin, delete |
+| Files | Download all / per-file while **Ready**; Open folder + Copy file paths once **Downloaded**; **Expired** entries can only be deleted |
+
+**Housekeeping:** the filter pane narrows by type/source; the search box matches text, link hostnames, file names, sources and types. **Manage retention…** previews how many entries/bytes an apply would remove. **Clear history…** removes unpinned (default) or all entries — with an opt-in checkbox to also wipe the current Windows clipboard. Deleting history never deletes files you already downloaded. Pinning keeps entries safe from automatic retention.
+
 ### Server dashboard
 
 The admin dashboard is served at the server root (e.g. `http://localhost:8080`). From there the admin can:
@@ -50,3 +70,5 @@ The admin dashboard is served at the server root (e.g. `http://localhost:8080`).
 | Large copies fail in P2S mode | Raise `CC_MAX_MESSAGE_SIZE_IN_MiB`, or enable P2P. |
 | P2P never connects | Network may block WebRTC; try a different STUN server or fall back to P2S. |
 | Wrong-password lockout | Wait out the lockout timer; it scales with repeat failures. |
+| Ctrl+Alt+V history hotkey does nothing | Another app owns the combination (you saw the one-time notice). Close it and toggle the setting off/on, or use the tray menu. |
+| History window shows an error | Clipboard sync is unaffected. Retry from the window; if it persists, restart the app — history data stays encrypted on disk. |

@@ -84,17 +84,36 @@ Known rough edge: `interfaces/ws_interface.py` is the seam meant to pick between
 
 `clipboard/clipboard_manager.py` is the one place both UIs and both transports call through for outbound (`clipboard_to_base64`) and inbound (`base64_to_clipboard`) clipboard events. Hook cross-cutting behavior here rather than duplicating per transport.
 
-### Encrypted local history (in progress, not wired up)
+### Encrypted local history (Windows, shipped)
 
-`history/` (`crypto.py`, `store.py`, `service.py`, `retention.py`, `models.py`) is a self-contained, Windows-only encrypted-at-rest clipboard-history store:
+A self-contained, Windows-only clipboard-history stack with a strict process boundary:
 
-- DPAPI-wrapped AES-256 master key
-- Per-record AES-256-GCM with AAD binding
-- Versioned SQLite schema
+```mermaid
+flowchart LR
+    subgraph MainApp["Main app process"]
+        CM[ClipboardManager] -->|non-blocking sink| HS[HistoryService]
+        HS --> DB[(SQLite + DPAPI/AES-GCM<br/>next to the exe)]
+        IPC[HistoryIpcServer<br/>authenticated named pipe]
+        ACC[HistoryActionExecutor<br/>clipboard / filesystem / store]
+        IPC --> HS
+        IPC --> ACC
+        TRAY[Tray "Open history"] --> L[HistoryProcessLauncher]
+        HK[Ctrl+Alt+V RegisterHotKey<br/>on the monitor's hidden window] --> L
+    end
+    subgraph ChildProcess["On-demand child process"]
+        W[PySide6 history window<br/>controller + virtualised list]
+        G[ReadOnlyHistoryGateway<br/>allow-list facade] --> IPC
+        W --> G
+    end
+    L --> W
+```
 
-No Qt/PySide6 dependency; not yet called from `ClipboardManager`. Check module docstrings for current scope before assuming a capability exists.
+- **Capture** (`history/` — `crypto.py`, `store.py`, `service.py`, `retention.py`, `models.py`): `ClipboardManager` records events through a bounded, non-blocking sink; capture failure can never break sync. DPAPI-wrapped AES-256 master key, per-record AES-GCM with AAD binding, versioned SQLite schema, fingerprints deduplicate re-captures.
+- **Access** (`history_ui/`): the window is a separate PySide6 process launched on demand (bundled only with `CLIPCASCADE_WITH_HISTORY_UI=1`). It never touches SQLite or keys — every read goes through the allow-listed gateway (`ping/query/get_detail` + commands/actions) over the authenticated pipe; every mutation (copy again, downloads, folder open, retention/clear) executes in the MAIN process via `HistoryActionExecutor`.
+- **Entry points**: tray menu/double-click (pending-download keeps double-click priority) and the opt-in hotkey (`history/hotkey_win.py` — one `RegisterHotKey` on the existing monitor window, guaranteed unregister, collision = one notice).
+- **Metadata**: with device-name sharing enabled, entries record which device a clip came from; legacy peers appear as "Remote device".
 
-`history_ui/` is a separate on-demand PySide6 child process (packaged only with `CLIPCASCADE_WITH_HISTORY_UI=1`) that will eventually read history over IPC — it never gets direct SQLite or key access.
+Data location, upgrade and uninstall behaviour: [windows-history-data.md](windows-history-data.md).
 
 ## Server internals
 
