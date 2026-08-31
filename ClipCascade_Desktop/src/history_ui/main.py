@@ -62,17 +62,32 @@ def run(argv):
         "process_start_to_qapplication_s": cli.elapsed_since_process_start(),
     }
 
+    first_page_recorded = False
+
     def on_first_paint():
         measurements["process_start_to_first_paint_s"] = cli.elapsed_since_process_start()
         cli.write_report(options.report, measurements)
         if options.probe:
             QTimer.singleShot(0, application.quit)
 
+    def on_first_page_ready():
+        # First page of real data rendered ("ready" state after the initial
+        # load): the packaged open-to-first-page-ready measurement, taken
+        # against the authenticated pipe rather than test fixtures.
+        nonlocal first_page_recorded
+        if first_page_recorded:
+            return
+        first_page_recorded = True
+        measurements["process_start_to_first_page_ready_s"] = cli.elapsed_since_process_start()
+        cli.write_report(options.report, measurements)
+
     window = HistoryWindow(on_first_paint=on_first_paint)
-    client = _connect_client(window, application)
+    client = _connect_client(window, application, on_first_page_ready=on_first_page_ready)
     measurements["ipc_connected"] = client is not None
 
     window.present()
+    measurements["process_start_to_window_present_s"] = cli.elapsed_since_process_start()
+    cli.write_report(options.report, measurements)
     if options.hold_seconds > 0:
         QTimer.singleShot(int(options.hold_seconds * 1000), application.quit)
 
@@ -85,7 +100,7 @@ def run(argv):
     return exit_code
 
 
-def _connect_client(window, application):
+def _connect_client(window, application, on_first_page_ready=None):
     """Best-effort: any failure to reach the main process must still let the
     window open (it just has no data yet), never abort the child."""
     pipe_name, token = credentials_from_environment()
@@ -119,6 +134,10 @@ def _connect_client(window, application):
 
     gateway = ReadOnlyHistoryGateway(client)
     controller = HistoryController(gateway, parent=window)
+    if on_first_page_ready is not None:
+        controller.state_changed.connect(
+            lambda state, hook=on_first_page_ready: hook() if state == "ready" else None
+        )
     window.attach_controller(controller)
     controller.start()
     return client
