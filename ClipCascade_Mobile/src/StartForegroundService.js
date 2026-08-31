@@ -1051,7 +1051,9 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
-              await clearFiles((expensiveCall = true));
+              // NOTE: a pending file-download offer is retired only when new
+              // content genuinely replaces the clipboard (below, after the
+              // hash/size gates) -- not on every inbound data-channel frame.
               await resetSendingFragmentId();
 
               let cb = String(message.payload);
