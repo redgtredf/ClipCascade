@@ -14,6 +14,18 @@ _hwnd = None  # Store the window handle
 _callback_update = None
 _block_image_once = False
 
+# History-hotkey lifecycle hooks (see history/hotkey_win.py). All three run on
+# this module's message-window thread, which the thread-affine
+# RegisterHotKey/UnregisterHotKey calls require.
+_hotkey_on_window_ready = None  # (hwnd) -> None
+_hotkey_on_window_closing = None  # (hwnd) -> None
+_hotkey_on_hotkey = None  # () -> None
+
+WM_HOTKEY = 0x0312
+# App-private message asking the window thread to (re)run the ready hook
+# after the hotkey is enabled post-creation (WM_APP range is free for apps).
+_WM_APP_HOTKEY_READY = 0x8001
+
 
 def _get_clipboard_content(enable_image_monitoring=False, enable_file_monitoring=False):
     """
@@ -91,6 +103,16 @@ def _process_message(
                 _callback_update(clip[0], clip[1])
         except Exception as e:
             logging.error(f"Error processing clipboard update: {e}")
+    elif msg == WM_HOTKEY and _hotkey_on_hotkey is not None:
+        try:
+            _hotkey_on_hotkey()
+        except Exception as e:
+            logging.error(f"Error handling the history hotkey: {e}")
+    elif msg == _WM_APP_HOTKEY_READY and _hotkey_on_window_ready is not None:
+        try:
+            _hotkey_on_window_ready(hwnd)
+        except Exception as e:
+            logging.error(f"Error registering the history hotkey: {e}")
     return 0
 
 
@@ -113,9 +135,19 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
     global _hwnd
     _create_window(enable_image_monitoring, enable_file_monitoring)
     ctypes.windll.user32.AddClipboardFormatListener(_hwnd)
+    if _hotkey_on_window_ready is not None:
+        try:
+            _hotkey_on_window_ready(_hwnd)
+        except Exception as e:
+            logging.error(f"Error setting up the history hotkey: {e}")
     try:
         win32gui.PumpMessages()
     finally:
+        if _hotkey_on_window_closing is not None:
+            try:
+                _hotkey_on_window_closing(_hwnd)
+            except Exception as e:
+                logging.error(f"Error unregistering the history hotkey: {e}")
         ctypes.windll.user32.RemoveClipboardFormatListener(_hwnd)
         win32gui.DestroyWindow(_hwnd)
         win32gui.UnregisterClass("ClipboardHook", win32api.GetModuleHandle(None))
@@ -130,6 +162,24 @@ def _start(enable_image_monitoring=False, enable_file_monitoring=False):
             daemon=True,
         )
         _clipboard_thread.start()
+
+
+def set_hotkey_callbacks(on_window_ready=None, on_window_closing=None, on_hotkey=None):
+    """Install the history-hotkey lifecycle hooks. Must be called before the
+    monitor starts; hooks stay installed across monitor restarts so a
+    recreated window re-registers automatically."""
+    global _hotkey_on_window_ready, _hotkey_on_window_closing, _hotkey_on_hotkey
+    _hotkey_on_window_ready = on_window_ready
+    _hotkey_on_window_closing = on_window_closing
+    _hotkey_on_hotkey = on_hotkey
+
+
+def request_hotkey_setup():
+    """Thread-safe: ask the window thread to (re)run the window-ready hook,
+    so a hotkey enabled after the window was created can register with the
+    thread-affine RegisterHotKey. No-op while no window exists."""
+    if _hwnd is not None:
+        win32gui.PostMessage(_hwnd, _WM_APP_HOTKEY_READY, 0, 0)
 
 
 def stop():

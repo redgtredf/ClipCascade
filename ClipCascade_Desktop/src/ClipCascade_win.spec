@@ -23,7 +23,19 @@ hiddenimports += ['history_ui.cli', 'history_ui.launcher', 'history_ui.client']
 excludes = ['numpy']
 
 if WITH_HISTORY_UI:
-    hiddenimports += ['history_ui.main', 'history_ui.window']
+    # The full child-side module set: history_ui.main pulls in the rest
+    # statically today, but the child entry is named explicitly so the
+    # window build can never ship half a history UI if an import style
+    # changes (the same reason main.py's lazy imports are listed above).
+    hiddenimports += [
+        'history_ui.main',
+        'history_ui.window',
+        'history_ui.controller',
+        'history_ui.entry_model',
+        'history_ui.detail_views',
+        'history_ui.theme',
+        'history_ui.link_policy',
+    ]
     # Qt modules the history window never imports. PySide6-Essentials ships
     # them, and every one left in raises the archive size and therefore the
     # extraction time of every cold start.
@@ -96,4 +108,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['../../logo/logo.ico'],
+    # Keep in step with APP_VERSION in core/constants.py; both builds
+    # (with and without the history UI) are Windows executables.
+    version='version_win.txt',
 )

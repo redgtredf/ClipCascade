@@ -7,6 +7,7 @@ import os
 
 from utils.window_manager import center_window
 from core.config import Config
+from core.constants import LINUX, MACOS, PLATFORM, WINDOWS
 from core.device_metadata import DEVICE_NAME_MAX_CHARS, sanitize_device_name
 from gui.info import CustomDialog
 from core.constants import *
@@ -459,6 +460,31 @@ class LoginForm(tk.Tk):
             "always included so your devices can tell messages apart.",
         )
 
+        # History Hotkey Checkbox (Windows only: opens the clipboard history
+        # window with the global Ctrl+Alt+V shortcut; off by default)
+        self.enable_history_hotkey_var = tk.BooleanVar(
+            value=bool(self.config.data.get("enable_history_hotkey"))
+        )
+        enable_history_hotkey_label = ttk.Label(
+            self.extra_frame, text="History Hotkey (Ctrl+Alt+V):"
+        )
+        self.enable_history_hotkey_checkbox = ttk.Checkbutton(
+            self.extra_frame,
+            variable=self.enable_history_hotkey_var,
+            takefocus=False,
+        )
+        if PLATFORM == WINDOWS:
+            enable_history_hotkey_label.grid(row=10, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+            self.enable_history_hotkey_checkbox.grid(row=10, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [enable_history_hotkey_label, self.enable_history_hotkey_checkbox],
+            "Registers a global Ctrl+Alt+V shortcut that opens the clipboard "
+            "history window (Windows only).\n\n"
+            "Off by default. If another application already uses this "
+            "combination, you will see a notice and the tray menu keeps "
+            "working as usual.",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
@@ -682,6 +708,9 @@ class LoginForm(tk.Tk):
             return  # retry login
         self.config.data["device_name"] = sanitize_device_name(raw_device_name)
         self.config.data["share_device_name"] = self.share_device_name_var.get()
+        self.config.data["enable_history_hotkey"] = (
+            self.enable_history_hotkey_var.get()
+        )
 
         # call login callback
         if self.on_login_callback:

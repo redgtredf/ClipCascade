@@ -32,6 +32,7 @@ class Config:
             "device_id": "",
             "device_name": "",
             "share_device_name": True,
+            "enable_history_hotkey": False,
         }
 
     def save(self):

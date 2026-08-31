@@ -1,0 +1,37 @@
+# UTF-8
+#
+# Windows version resource for ClipCascade.exe (PyInstaller `version=`).
+# Keep FileVersion/ProductVersion in step with APP_VERSION in
+# core/constants.py and [project.version] in pyproject.toml.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(3, 2, 0, 0),
+    prodvers=(3, 2, 0, 0),
+    mask=0x3F,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040904B0',
+          [
+            StringStruct('CompanyName', 'ClipCascade'),
+            StringStruct('FileDescription', 'ClipCascade - Real-Time Clipboard Syncing'),
+            StringStruct('FileVersion', '3.2.0'),
+            StringStruct('InternalName', 'ClipCascade'),
+            StringStruct('LegalCopyright', 'GPL-3.0'),
+            StringStruct('OriginalFilename', 'ClipCascade.exe'),
+            StringStruct('ProductName', 'ClipCascade'),
+            StringStruct('ProductVersion', '3.2.0')
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
