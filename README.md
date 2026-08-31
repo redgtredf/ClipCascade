@@ -1,49 +1,1379 @@
-# ClipCascade
+# <img src="https://github.com/user-attachments/assets/710bb1c3-0eda-48cf-819a-e066bde3a3ec" alt="ClipCascade Logo" width="34" /> ClipCascade
 
-Sync your clipboard across all your devices, in real time, with end-to-end encryption. Copy on your phone, paste on your PC — the server only ever relays ciphertext it cannot read.
+**ClipCascade** is a lightweight, open-source utility that automatically syncs your clipboard across multiple devices—no manual input required. It ensures seamless sharing with robust end-to-end encryption, providing a secure and reliable clipboard experience across workstations.
 
-## How it works
+**No Server? No Problem!** Instantly sync your clipboard using the **Live Community Server** at **[clipcascade.sathvik.dev](http://clipcascade.sathvik.dev/)**—**no setup needed**. Just create an account and start sharing your clipboard across devices in seconds!
 
-Three independently deployable components:
+<div align="center">
 
-| Component | Stack | Role |
-|---|---|---|
-| **Server** (`ClipCascade_Server/`) | Java 21 / Spring Boot | Relay + admin dashboard. Docker images provided. |
-| **Desktop client** (`ClipCascade_Desktop/`) | Python | Windows/macOS/Linux, with GUI (tray) and CLI variants |
-| **Mobile client** (`ClipCascade_Mobile/`) | React Native | Android |
+<table>
+  <tr>
+    <th>Docker</th>
+    <th>Windows</th>
+    <th>macOS</th>
+    <th>Android</th>
+    <th>Linux</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://hub.docker.com/r/sathvikrao/clipcascade">
+        <img src="https://www.docker.com/wp-content/uploads/2022/03/Moby-logo.png" alt="Docker" width="50" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/5/5f/Windows_logo_-_2012.svg" alt="Windows" width="50" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/1/1b/Apple_logo_grey.svg" alt="macOS" width="40" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg" alt="Android" width="40" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/3/35/Tux.svg" alt="Linux" width="40" />
+      </a>
+    </td>
+  </tr>
+</table>
 
-Two sync transports:
+</div>
 
-- **Peer-to-Server (P2S)** — default; clipboard events relay through the server over STOMP/WebSocket.
-- **Peer-to-Peer (P2P)** — optional; devices connect directly via WebRTC (server used only for signaling), removing server size limits.
+<br />
 
-Privacy: keys are derived on-device from your username+password (PBKDF2, 664,937 rounds) and each message is encrypted with AES-256-GCM. The key never leaves the device.
+<div align="center">
+	<table>
+		<tr>
+			<td>
+				<div align="center">
+    				<img src="https://github.com/user-attachments/assets/0b7178fd-e40f-400c-9c6f-6ea9f4e5b800" alt="arch_design_p2s" width="360" height="300" />
+				</div>
+			</td>
+			<td>
+				<div align="center">
+    				<img src="https://github.com/user-attachments/assets/32366820-fc48-4849-914f-fe0474fa308a" alt="arch_design_p2p" width="360" height="300" />
+				</div>
+			</td>
+    	</tr>
+	</table>
+</div>
 
 ## Documentation
 
-| Doc | Contents |
-|---|---|
-| [docs/SETUP.md](docs/SETUP.md) | Install and configure the server (Docker or source), desktop and mobile clients |
-| [docs/USAGE.md](docs/USAGE.md) | Day-to-day use, dashboard admin, sizing, troubleshooting |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the components fit together: protocol, transports, crypto, internals |
+- [docs/SETUP.md](docs/SETUP.md) - install and configure the server, desktop and mobile clients
+- [docs/USAGE.md](docs/USAGE.md) - day-to-day use, admin dashboard, sizing and troubleshooting
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - how the components fit together: protocol, transports, crypto, internals
 
-## Quick start
+## 📸 Screenshots
+
+| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 🐧⌨️ Desktop ([Linux_CLI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 
+|-----------------------|--------------------|--------------------|--------------------|--------------------|
+| <img src="https://github.com/user-attachments/assets/369d5db5-685c-4284-946d-b6a0e1f4fef9" alt="Desktop (Windows) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/2c0a7f4d-652c-4f4c-97e9-ee9b9d66f03f" alt="Desktop (macOS) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/a5606f3c-6d8a-434f-8f1d-03d6276e03c0" alt="Mobile (Android) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/f1acd9f4-27ee-4eb0-8696-a786a21551ed" alt="Desktop (Linux_GUI) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/f3f7c3a9-0299-4f0d-9494-5d9a102a243f" alt="Desktop (Linux_CLI) - 1" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_CLI) - 2" width="240" /> |
+
+
+
+## ✨ Features  
+
+- **🚀 Instant Clipboard Sync** – Clipboard content updates in real time across all connected devices. Just copy, and it’s there!  
+- **🔒 Secure Authentication** – Ensures only authorized users can sync clipboard data.  
+- **🛡️ End-to-End Encryption** – Protects clipboard content with advanced cryptographic security and hashing techniques.  
+- **🔄 Dual Sync Modes:**  
+  - **☁️ Server-Based Sync** – Reliable cloud-based synchronization via a centralized server.  
+  - **🔗 Peer-to-Peer Sync** – Direct device-to-device connection for ultra-low latency and minimal server dependency.  
+- **💻 Cross-Platform Compatibility** – Works seamlessly on Windows, macOS, Linux, and Android.  
+- **📄📷📁 Universal Clipboard** – Syncs text, images, and files effortlessly across devices.  
+- **📦 Self-Hosting Option** – Deploy your own secure instance using a Docker image or standalone JAR file.  
+- **👥 Multi-User Support** – Isolates clipboard data per user while enabling seamless syncing between personal devices.  
+- **🌐 Web-Based Dashboard** – Track clipboard activity and manage settings through an intuitive interface.  
+- **⚙️ Customizable Preferences** – Fine-tune sync settings for performance, security, and usability.  
+- **🔔 Smart Update Notifications** – Stay informed about new features, security patches, and enhancements.  
+
+   
+<div align="center">
+<table>
+  <tr>
+    <th>Type</th>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td><strong>Text</strong></td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+  </tr>
+  <tr>
+    <td><strong>Image</strong></td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+  </tr>
+  <tr>
+    <td><strong>Files</strong></td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+  </tr>
+</table>
+</div>
+
+
+## 📥 Installation Guide
+
+### 🦾 Self-Hosting ClipCascade on Bare Metal:
+
+To deploy the ClipCascade server on any operating system that supports Java 21 or later, follow the steps outlined below.
+
+1. **Download the Server JAR File**  
+
+    Obtain the latest release of `ClipCascade-Server-JRE_21.jar` from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+
+2. **Configure Environment Variables (Optional)**  
+
+    The ClipCascade server supports various environment variables for customization. None of these variables are mandatory, but they can be configured as needed.  
+
+    For a comprehensive list of available environment variables, refer to the [Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details) section.
+
+    | Variable                     | Description                                                                                          | Default Value     | Example                           |
+    |------------------------------|------------------------------------------------------------------------------------------------------|-------------------|-----------------------------------|
+    | `CC_ADMIN_USERNAME`          | **Required.** Initial admin username, used only to bootstrap the account when the database is empty. | *(none — startup fails if unset)* | `admin`                           |
+    | `CC_ADMIN_PASSWORD`          | **Required.** Initial admin password. Never use a well-known value; no default exists.               | *(none — startup fails if unset)* | *(a strong unique password)*      |
+    | `CC_SERVER_DB_PASSWORD`      | **Required.** Password for encrypting the user database. H2 expects `<file password> <user password>`. | *(none — startup fails if unset)* | *(two space-separated secrets)*   |
+    | `CC_ALLOWED_ORIGINS`         | **Required.** Comma-separated origins allowed to reach the dashboard/WebSocket. Wildcards are refused. | *(none — startup fails if unset)* | `https://clipcascade.example.com` |
+    | `CC_MAX_MESSAGE_SIZE_IN_MiB` | Defines the maximum allowed message size in MiB. Ignored if `CC_P2P_ENABLED` is set to `true`.       | `1`               | `3`                               |
+    | `CC_P2P_ENABLED`             | Enables or disables peer-to-peer mode. When enabled, `CC_MAX_MESSAGE_SIZE_IN_MiB` is ignored.        | `false`           | `true`                            |
+    | `CC_SIGNUP_ENABLED`          | Allows or restricts user self-registration.                                                          | `false`           | `false`                           |
+    | `CC_PORT`                    | Specifies the port on which the server listens for incoming connections.                             | `8080`            | `1234`                            |
+   
+3. **Start the Server**  
+    Run the following command in the terminal to launch the ClipCascade server:
+
+    ```bash
+    java -jar ClipCascade-Server-JRE_21.jar
+    ```
+   
+4. **Access the Server**  
+    Once the server is running, you can access it via:
+
+    ```
+    http://localhost:8080
+    ```
+
+    - **Initial Admin Account:**  
+      Created on first start from the **required** `CC_ADMIN_USERNAME` and `CC_ADMIN_PASSWORD` environment variables (only when the user database is empty). There is no default admin account.
+
+> **Important:** The server refuses to start when `CC_ADMIN_USERNAME`, `CC_ADMIN_PASSWORD`, `CC_SERVER_DB_PASSWORD`, or `CC_ALLOWED_ORIGINS` are not set. This fail-fast replaces the old insecure defaults.
+
+For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup) section.
+
+[➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
+* * * * * * *
+
+### 🐳 Self-Hosting ClipCascade Using Docker:
+
+#### Quick Installation (Single Command)
+
+For users who prefer a one-liner, you can deploy ClipCascade instantly using:
 
 ```bash
-# 1. Start the server
-cd ClipCascade_Server/docker-compose
-cp .env.example .env        # fill in required credentials
-docker compose up -d
-
-# 2. Install a client on each device (see docs/SETUP.md)
+docker run -d --name clipcascade -p 8080:8080 \
+  -e CC_ADMIN_USERNAME=admin \
+  -e CC_ADMIN_PASSWORD='change-me-now' \
+  -e CC_SERVER_DB_PASSWORD='file-pass user-pass' \
+  -e CC_ALLOWED_ORIGINS='http://localhost:8080' \
+  -e CC_MAX_MESSAGE_SIZE_IN_MiB=1 \
+  -v ./cc_users:/database sathvikrao/clipcascade
 ```
 
-Sign in with the same account on every device you want synced.
+> Replace the credentials and allowed origin with your own values before exposing the server beyond `localhost`.
 
-## Repository
+#### Detailed Installation Steps
 
-Upstream: https://github.com/Sathvik-Rao/ClipCascade
+To host ClipCascade on your server using Docker, follow these steps:
 
-## License
+1. Create a `docker-compose.yml` File
 
-See [LICENSE](LICENSE).
+    Create a `docker-compose.yml` file with the following content, or download it from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases):
+
+    ```yaml
+    services:
+      clipcascade:
+        image: sathvikrao/clipcascade:latest
+        ports:
+          - "8080:8080"  # Expose the ClipCascade server on port 8080
+        restart: always  # Automatically restart the container if it stops
+        volumes:
+          - ./cc_users:/database  # Persistent storage for user data
+        environment:
+          - CC_ADMIN_USERNAME=admin                        # REQUIRED: initial admin username (no default)
+          - CC_ADMIN_PASSWORD=change-me-now                # REQUIRED: initial admin password (no default)
+          - CC_SERVER_DB_PASSWORD=file-pass user-pass      # REQUIRED: H2 format '<file password> <user password>'
+          - CC_ALLOWED_ORIGINS=http://localhost:8080       # REQUIRED: explicit, non-wildcard origins
+          - CC_MAX_MESSAGE_SIZE_IN_MiB=1   # Maximum message size in MiB (ignored if P2P mode is enabled)
+          - CC_P2P_ENABLED=false  # Enables or disables peer-to-peer(P2P) mode
+          # - CC_SIGNUP_ENABLED=false  # Enables or disables user self-registration
+   ```
+   
+   > Tip: copy `ClipCascade_Server/docker-compose/.env.example` from the repository to a `.env` file next to your compose file and reference the values as `${CC_ADMIN_PASSWORD}` etc. — Compose loads `.env` automatically.
+    
+   For additional `.yml` configuration files, visit [ClipCascade Server Docker Configuration](https://github.com/Sathvik-Rao/ClipCascade/tree/main/ClipCascade_Server/docker-compose).
+  
+2. Deploy the Docker Container
+
+    Run the Docker container using Docker Compose:
+
+    ```
+    docker-compose up -d
+    ```
+
+3. **Access the Server**  
+    Once the server is running, you can access it via:
+
+    ```
+    http://localhost:8080
+    ```
+
+    - **Initial Admin Account:**  
+      Created on first start from the **required** `CC_ADMIN_USERNAME` and `CC_ADMIN_PASSWORD` environment variables (only when the user database is empty). There is no default admin account.
+
+
+> **Important:** The server refuses to start when `CC_ADMIN_USERNAME`, `CC_ADMIN_PASSWORD`, `CC_SERVER_DB_PASSWORD`, or `CC_ALLOWED_ORIGINS` are not set. This fail-fast replaces the old insecure defaults.
+
+For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup) section.
+
+[➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
+<div align="center">
+   <img src="https://github.com/user-attachments/assets/02151726-2a26-42d7-8863-ae4512754eb3" alt="Web Page login" width="300"  />
+   <img src="https://github.com/user-attachments/assets/6f346d46-3334-4306-9f62-e0f98f1c0506" alt="Web Page home" width="300"  />
+   <img src="https://github.com/user-attachments/assets/74252e8e-e8f9-4a9a-a15d-0c3cc987b09c" alt="Web Page advance" width="300"  />
+</div>
+
+* * * * * * *
+
+### 🪟 Windows Desktop Application:
+
+To install the ClipCascade Windows desktop application, follow these steps:
+
+1. **Download the Installer**
+    - Get the latest version of ClipCascade from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+2. **Install the Application**
+    - Run the downloaded `.msi` installer and follow the on-screen instructions, and select the default installation path specified by the installer.
+    - Startup is enabled by default; you can disable it in the Task Manager if desired.
+3. **Launch and Configure**
+    - Open ClipCascade after installation and **log in** to start syncing your clipboard across devices.
+    - When prompted, enter your **server's IP address, port number, or domain name**.
+    - If encryption is enabled, ensure it is **enabled on all devices**.
+    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+4. **Network Access Prompt (P2P Mode)**
+    - If the server is running in **P2P mode**, you will see a Windows security prompt asking, **"Do you want to allow public and private networks to access this app?"**
+
+      <img src="https://github.com/user-attachments/assets/d5ededb1-0d21-4686-91bd-e0a22cdb54e5" alt="win_network_prompt" width="150"  />
+
+    - This is because each client device acts as a **peer** in the network, requiring direct communication.
+    - Click **Allow** to enable clipboard data syncing across your devices without the help of a server. The server is needed only for signaling and authentication.
+
+**Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
+
+To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+```bash
+pip3 install -r requirements_win.txt
+python3 -m PyInstaller ClipCascade_win.spec
+```
+
+The optional clipboard-history packaging probe uses an on-demand PySide6 child
+process. It is not a released history feature. On a clean 64-bit Python 3.12
+environment, build the baseline first, then install the separate Windows-only
+UI requirements and enable the candidate build:
+
+```powershell
+python -m pip install -r requirements_win.txt pyinstaller==6.11.1
+python -m PyInstaller --clean --noconfirm ClipCascade_win.spec
+
+python -m pip install -r requirements_win_history_ui.txt
+$env:CLIPCASCADE_WITH_HISTORY_UI = "1"
+python -m PyInstaller --clean --noconfirm ClipCascade_win.spec
+```
+
+The candidate keeps Qt out of a normal ClipCascade launch. `ClipCascade.exe
+--history-ui` starts only the temporary, empty measurement window; a repeat
+launch focuses that window. Use `--startup-probe --report <path>` to record a
+process-start timing without starting the existing client.
+
+The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
+
+[➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
+* * * * * * *
+
+### 🍏 macOS Desktop Application:
+
+To install the ClipCascade macOS desktop application, follow these steps:
+
+1. **Download the Application**
+    - Visit the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) and download the appropriate version:
+      - **For M-series chips** (Apple Silicon), download `ClipCascade-Apple_macOS(ARM_M-Series).zip`.
+      - **For Intel chips**, download `ClipCascade-Apple_macOS(Intel-Series).zip`.
+    - You can check your chip type by navigating to **Apple Menu** → **About This Mac**.
+   
+2. **Extract the Archive**
+    - Double-click the `.zip` file to extract its contents.
+
+3. **Locate the Application**
+    - Open the extracted folder to find the **ClipCascade** application.
+    - Move the application to a preferred location, such as the **Applications** folder.
+
+4. **First-time launch (see note below for more information)**
+    - **Right-click** (not double-click) on the **ClipCascade** application and select **Open**.
+     
+        <img src="https://github.com/user-attachments/assets/90b58940-69ed-4d35-a22d-1aa9988c014c" alt="ClipCascade->RightClick->Open" width="500" />
+    - If you encounter the warning *"Apple could not verify 'ClipCascade' is free..."*, click **Done** or **Ok**. ([Apple Guide](https://support.apple.com/en-us/102445))
+  
+
+       <img src="https://github.com/user-attachments/assets/986c3aef-28cf-4293-8ec8-180508d7e172" alt="Apple Warning" width="150" />
+       <img src="https://github.com/user-attachments/assets/8c604467-6dee-4977-8e3e-6473201e0e32" alt="Apple Warning" width="150" />
+       
+       - Go to **System Preferences** > **Security & Privacy** > Click **Open Anyway** (if you see the option), and when you re-run(right click->open) the application warning prompt reappears one last time, click **Open Anyway** or **Open**.  ([Apple Guide](https://support.apple.com/en-us/102445))
+         
+           <img src="https://github.com/user-attachments/assets/b6f41164-f73d-4e77-a110-b175a22057c6" alt="settings->security->open_anyway" width="250" />
+           <img src="https://github.com/user-attachments/assets/41bde005-537a-4950-bfe7-d55c9e767b15" alt="Apple Warning" width="150" />
+           <img src="https://github.com/user-attachments/assets/4803a2ba-acdf-41d9-a707-a8f22de12855" alt="Apple Warning" width="150" />
+
+5. **Wait for the app to launch**
+    - When you open the application, macOS will scan the application. This may take **10–30 seconds**.
+
+6. **Configure the application**
+    - When prompted, enter your **server's IP address, port number, or domain name**.
+    - If encryption is enabled, ensure it is **enabled on all devices**.
+    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+
+7. **Network Access Prompt (P2P Mode)**
+    - If the server is running in **P2P mode**, you will see a macOS security prompt asking, **"Allow "ClipCascade" to find devices on local networks?"**
+
+      <img src="https://github.com/user-attachments/assets/91aae27e-f950-45a4-a4a1-09893e0573d3" alt="mac_network_prompt" width="150" />
+
+    - This is because each client device acts as a **peer** in the network, requiring direct communication.
+    - Click **Allow** to enable clipboard data syncing across your devices without the help of a server. The server is needed only for signaling and authentication.
+      
+8. **Access the App from the Menu Bar**
+    - Once logged in, the application will run in the **menu bar** with a clipboard icon at the top of your screen.
+
+9. **Enable Auto-Startup**:
+     - Right-click the **ClipCascade** icon in the dock (bottom of the screen).
+     - Select **Options** and then check **Open at Login**.
+       
+       <img src="https://github.com/user-attachments/assets/cadeb680-d1fd-4582-9d20-b41ba8713b39" alt="Startup" width="200" />
+     - Alternatively, open **Settings** → **General** → **Login Items & Extensions**, then add **ClipCascade** manually.
+
+**Important Note:** Since the application is not published or registered with Apple, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Apple requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
+
+To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+```bash
+pip3 install -r requirements_mac.txt
+python3 -m PyInstaller ClipCascade_macos.spec
+```
+
+[➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
+* * * * * * *
+
+### 🤖📱 Android Mobile Application:
+
+To install the ClipCascade mobile application on your Android device, follow these steps:
+
+1. **Download** the latest APK from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+2. **Enable** installation from unknown sources in your device settings, if prompted.
+3. **Install** the APK by following the prompts on your device.
+4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
+    - When prompted, enter your **server's IP address, port number, or domain name**.
+    - If encryption is enabled, ensure it is **enabled on all devices**.
+    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+
+#### Android Automatic Clipboard Monitoring Setup:
+
+ClipCascade supports automatic clipboard monitoring for both rooted and non-rooted devices. To activate this feature, execute the following ADB commands.
+
+##### Install ADB
+
+Before proceeding, make sure ADB is installed on your system. Follow the instructions [here](https://www.xda-developers.com/install-adb-windows-macos-linux/) to install ADB on Windows, macOS, or Linux.
+
+##### ADB Commands
+
+1. **Grant the `READ_LOGS` permission:**
+   ```bash
+   adb -d shell pm grant com.clipcascade android.permission.READ_LOGS
+   ```
+
+2. **Enable "Display/Drawing over other apps," "Screen overlay," or "Appear on top":**
+   This permission can also be enabled from the device's Settings. To set it via ADB, use:
+   ```bash
+   adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow
+   ```
+
+3. **Kill the app for the new permissions to take effect:**
+   ```bash
+   adb -d shell am force-stop com.clipcascade
+   ```
+![adb commands](https://github.com/user-attachments/assets/3faa8d71-d099-48d5-9846-4683cf77f285)
+
+> Once the setup is complete, it operates seamlessly without requiring any extra steps. It monitors log entries related to ClipCascade, and if it detects an error during a clipboard copy action, it will trigger an overlay window to gain focus. This overlay allows the app to capture the clipboard content and send it to the connected devices immediately before going out of focus and closing. When the app is uninstalled, these permissions will be removed, requiring you to redo these steps. Additionally, each time you start the foreground service, it will prompt you to choose whether to monitor logs. This ensures that everything remains secure and under your control.
+
+After executing three ADB commands, when you click the **Start** button, you will see a pop-up message. Click **"Allow."**
+
+<img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" alt="allow_log_monitoring" width="200" />
+
+[➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
+* * * * * * *
+
+### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (CLI):
+
+This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu, Fedora, and Arch-based systems. While the commands are specifically tailored for these distributions, you can adapt the process for other Linux distributions with minor modifications. The Linux code is available on the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Once downloaded, navigate to the `ClipCascade/` folder containing `main.py`, and open a terminal in that directory.
+
+> **Note:** On startup, ClipCascade reads a handful of **standard environment variables** your desktop session already sets—such as `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, and `DISPLAY`—so it knows which display and clipboard APIs to use (the same kind of information any graphical app needs locally). From those values it classifies the environment as **X11**, **XWayland** (a Wayland session that also exposes an X11 socket), **Hyprland**, **native Wayland**, or **unknown**. That classification picks **both** the default clipboard integration (X11-style versus Wayland-style tools) **and** the default user interface (**GTK tray / GUI** versus **terminal-based CLI**). **X11**, **XWayland**, and **unknown** default to the X11-style clipboard path and **GUI**; **native Wayland** and **Hyprland** default to the Wayland-style clipboard path and **CLI**. You can override defaults with `--gui` and `--xmode` (see below)—for example, **`--gui true` on Wayland** still uses the Wayland clipboard path unless you also change `--xmode`.
+
+#### Step 1: Check for updates and install required packages
+
+##### Debian/Ubuntu:
+```
+sudo apt update
+sudo apt install -y python3 python3-pip python3-gi xclip wl-clipboard dunst
+```
+
+##### Fedora:
+```
+sudo dnf check-update
+sudo dnf install -y python3 python3-pip python3-gobject xclip wl-clipboard dunst
+```
+
+##### Arch:
+```
+sudo pacman -Syu --noconfirm python python-pip python-gobject xclip wl-clipboard dunst xdg-utils
+```
+
+
+#### Step 2: Install GTK 3.0 for clipboard monitoring and GUI support
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
+```
+
+##### Fedora:
+```
+sudo dnf install -y libappindicator-gtk3
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm python-gobject gtk3
+```
+
+#### Step 3: Install GNOME tray support extension (if tray icon is unavailable)
+Install the [GNOME tray support extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+
+
+#### Step 4: Install Python Dependencies
+
+##### Debian/Ubuntu/Fedora:
+```
+sudo pip3 install -r requirements.txt
+```
+
+##### Arch:
+```
+sudo pip install -r requirements.txt
+```
+
+#### Step 4.1: Fix `externally-managed-environment` Error (if applicable)
+
+If you encounter the `error: externally-managed-environment`, install the required Python packages manually.
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer python3-aiortc
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer python3-aiortc
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer python-aiortc
+```
+  - If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
+  - If you encounter the `error: target not found: python-aiortc`, install via `yay -S --noconfirm python-aiortc`
+
+
+#### Step 4.2: Fix `Package libavformat was not found in the pkg-config search path` Error (if applicable)
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev pkg-config
+```
+
+##### Fedora:
+```
+sudo dnf install -y ffmpeg ffmpeg-devel
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm ffmpeg
+```
+
+
+#### Step 5: Run the Application
+
+Start ClipCascade by running (use sudo if needed):
+   - When prompted, enter your **server's IP address, port number, or domain name**.
+   - If encryption is enabled, ensure it is **enabled on all devices**.
+   - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+```
+python3 main.py
+```
+
+Linux supports optional launch arguments to manually tune behavior when needed:
+- `--gui <true|false>`: force **GUI** (tray / GTK login) with `true`, or **terminal CLI** with `false`, independent of the auto-selected default.
+- `--xmode <true|false>`: force **X11 / XWayland-style** clipboard handling (`xclip`, GTK clipboard when applicable) with `true`, or **Wayland-style** handling (`wl-clipboard`) with `false`.
+- `--polling <seconds>`: override clipboard polling interval (must be a positive number).
+
+When flags are omitted, **display-server detection** sets the default `--xmode` behavior, and the default **GUI vs CLI** follows that same classification (GUI for X11, XWayland, and unknown; CLI for native Wayland and Hyprland). Use `--gui` / `--xmode` if your session variables do not match how you want the app to run.
+
+Examples:
+```bash
+python3 main.py --gui true
+python3 main.py --gui false --xmode false --polling 3
+python3 main.py --polling 1.5
+```
+
+If these flags are not provided, ClipCascade automatically detects your environment and selects the most suitable clipboard path and interface.
+
+
+#### Step 5.1: Fix 'No module named `Crypto`' Error (if applicable)
+
+If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
+[see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
+
+
+##### Debian/Ubuntu:
+```
+sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packages/Crypto
+```
+
+##### Fedora:
+```
+sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
+```
+
+##### Arch:
+```
+sudo ln -s /usr/lib/python3.*/site-packages/Cryptodome /usr/lib/python3.*/site-packages/Crypto
+```
+
+#### Step 5.2: Fix 'ModuleNotFoundError: No module named `tkinter`' Error (if applicable)
+
+If you encounter the `No module named 'tkinter'` error:
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-tkinter
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-tkinter
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm tk
+```
+
+#### Step 5.3:  Fix '`gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET (widget)' failed`' Error (if applicable)
+
+This error occurs due to a missing tray icon extension in GNOME. To resolve it, you can install the extension from [here](https://extensions.gnome.org/extension/615/appindicator-support)
+
+
+#### Step 5.4:  Fix '`g-exec-error-quark`' Error (if applicable)
+
+##### Debian/Ubuntu:
+```
+sudo apt install dbus-x11
+```
+
+##### Fedora:
+```
+sudo dnf install dbus-x11
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm dbus
+```
+
+#### Step 6: Run the Application in the Background (if needed)
+
+To run ClipCascade as a background process (if the GUI setup is functional), use the following command:
+```
+nohup python3 main.py &> /dev/null &
+```
+If root privileges are required, use:
+```
+sudo nohup python3 main.py &> /dev/null &
+```
+
+
+#### Step 7: Add ClipCascade to Startup Script (if needed)
+
+To ensure ClipCascade starts automatically when your system boots, modify the file paths as necessary and add the appropriate command to your startup script.
+
+##### Example:
+##### GUI
+```
+cd /path/to/clipcascade/src/ && nohup python3 main.py &> /dev/null &
+```
+If root privileges are required, use:
+```
+cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
+```
+
+##### CLI
+```
+cd /path/to/clipcascade/src/ && python3 main.py
+```
+If root privileges are required, use:
+```
+cd /path/to/clipcascade/src/ && sudo python3 main.py
+```
+
+[➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
+
+## ⚙️ Advanced Details
+
+
+### 🗄️ Server Configuration
+
+#### Important Security Notice:
+There is **no default admin account**. The initial admin is created from the **required** `CC_ADMIN_USERNAME` / `CC_ADMIN_PASSWORD` environment variables, and only when the user database is empty. The server refuses to start if required credentials or `CC_ALLOWED_ORIGINS` are missing.  
+
+
+#### Health Check Endpoint  
+- **Purpose:** Verifies if the server is running and operational.  
+- **Endpoint:** `/health`  
+- **Response:** Returns `OK` with a status code `200` when the server is up and running.
+
+#### Built-in Update Checker
+- The server features a built-in update checker, prominently displayed on the homepage, keeping you informed about the latest enhancements and security fixes. This ensures your server stays up to date.
+
+  <img src="https://github.com/user-attachments/assets/8184e4ad-d711-4fda-9382-eb3a252bc07b" alt="server_update" />
+  
+
+#### Environment Variables:
+
+<table>
+<thead>
+<tr>
+<th>Environment Variable</th>
+<th>Extended Description</th>
+<th>Default Value</th>
+</tr>
+</thead>
+<tbody>
+
+<!-- 1 -->
+<tr>
+<td>CC_MAX_MESSAGE_SIZE_IN_MiB</td>
+<td>
+Defines the maximum message size (in MiB) that the server can handle.
+<br><br>
+<strong>Note:</strong><br>
+- Android typically supports larger clipboard sizes for images and files but limits text to ~1 MiB.<br>
+- Desktop supports larger clipboard sizes across text, images, and files.
+<br><br>
+<strong>Additional Notes:</strong><br>
+- Clients can set their own limits via the "Extra Config" on the login page.<br>
+- If <code>CC_P2P_ENABLED</code> is <code>true</code>, this setting is ignored.
+</td>
+<td>1</td>
+</tr>
+
+<!-- 2 -->
+<tr>
+<td>CC_MAX_MESSAGE_SIZE_IN_BYTES</td>
+<td>
+Provides finer control over message size by specifying a limit in bytes.
+<br><br>
+<strong>Note:</strong> If set above zero, it overrides <code>CC_MAX_MESSAGE_SIZE_IN_MiB</code>.<br>
+Ignored if <code>CC_P2P_ENABLED</code> is <code>true</code>.
+</td>
+<td>0</td>
+</tr>
+
+<!-- 3 -->
+<tr>
+<td>CC_P2P_ENABLED</td>
+<td>
+Toggles the Peer-to-Peer (P2P) feature, allowing direct device-to-device communication.
+<br><br>
+<strong>Advantages:</strong><br>
+- Reduces server load.<br>
+- Removes size restrictions, enabling unlimited data transfer.
+<br><br>
+<strong>Important Notes:</strong><br>
+- If enabled, <code>CC_MAX_MESSAGE_SIZE_IN_MiB</code> and <code>CC_MAX_MESSAGE_SIZE_IN_BYTES</code> are ignored.<br>
+- Some network configurations may not support P2P.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 4 -->
+<tr>
+<td>CC_P2P_STUN_URL</td>
+<td>
+Defines the STUN server URL used for P2P communication, helping devices discover each other across NAT.
+<br><br>
+<strong>Note:</strong> Required when <code>CC_P2P_ENABLED</code> is <code>true</code>.<br>
+You can use a public STUN server or host your own.
+</td>
+<td>stun:stun.l.google.com:19302</td>
+</tr>
+
+<!-- 5 -->
+<tr>
+<td>CC_ALLOWED_ORIGINS</td>
+<td>
+Specifies which domain is permitted to access the WebSocket server (CORS policy).
+<br><br>
+<strong>Required:</strong><br>
+- Production startup fails when unset or wildcard; set explicit origin(s) (e.g., <code>https://clipcascade.example.com</code>).<br>
+- Wildcards are only permitted with the <code>local-test</code> (or <code>test</code>) profile.
+</td>
+<td>*(none — startup fails if unset or wildcard)</td>
+</tr>
+
+<!-- 6 -->
+<tr>
+<td>CC_SIGNUP_ENABLED</td>
+<td>
+Determines whether new users can sign up.
+<br><br>
+<strong>Default:</strong> <code>false</code> (public signups are disabled).
+</td>
+<td>false</td>
+</tr>
+
+<!-- 7 -->
+<tr>
+<td>CC_MAX_USER_ACCOUNTS</td>
+<td>
+Defines the maximum number of user accounts allowed on the server.
+<br><br>
+<strong>Note:</strong> <code>-1</code> means no limit.
+</td>
+<td>-1</td>
+</tr>
+
+<!-- 8 -->
+<tr>
+<td>CC_ACCOUNT_PURGE_TIMEOUT_SECONDS</td>
+<td>
+Specifies the duration (in seconds) after which inactive accounts are deleted.
+<br><br>
+<strong>Example:</strong> <code>63115200</code> (equivalent to 2 years).<br>
+<strong>Note:</strong> <code>-1</code> disables automatic purging.
+</td>
+<td>-1</td>
+</tr>
+
+<!-- 9 -->
+<tr>
+<td>CC_PORT</td>
+<td>
+Defines the internal port where the ClipCascade server listens for connections.
+<br><br>
+<strong>Default:</strong> 8080, but can be changed if necessary.
+</td>
+<td>8080</td>
+</tr>
+
+<!-- 10 -->
+<tr>
+<td>CC_SESSION_TIMEOUT</td>
+<td>
+Specifies the duration before user sessions expire, using minute-based formatting (<code>[number]m</code>).
+<br><br>
+<strong>Default:</strong> <code>525960m</code> (~1 year).
+</td>
+<td>525960m</td>
+</tr>
+
+<!-- 11 -->
+<tr>
+<td>CC_MAX_UNIQUE_IP_ATTEMPTS</td>
+<td>
+Sets the maximum number of failed login attempts from different IP addresses before an account is blocked.
+</td>
+<td>15</td>
+</tr>
+
+<!-- 12 -->
+<tr>
+<td>CC_MAX_ATTEMPTS_PER_IP</td>
+<td>
+Limits the number of failed login attempts allowed per IP before temporarily blocking that IP.
+</td>
+<td>30</td>
+</tr>
+
+<!-- 13 -->
+<tr>
+<td>CC_LOCK_TIMEOUT_SECONDS</td>
+<td>
+Defines the initial lockout duration (in seconds) after too many failed login attempts.
+</td>
+<td>60</td>
+</tr>
+
+<!-- 14 -->
+<tr>
+<td>CC_LOCK_TIMEOUT_SCALING_FACTOR</td>
+<td>
+Determines how the lockout time increases with each consecutive failed attempt.
+<br><br>
+<strong>Examples:</strong><br>
+- Factor 1: 60, 120, 180…<br>
+- Factor 2: 120, 240, 360…<br>
+- Factor 3: 180, 360, 540…
+</td>
+<td>2</td>
+</tr>
+
+<!-- 15 -->
+<tr>
+<td>CC_BFA_CACHE_ENABLED</td>
+<td>
+Controls whether brute force attack (BFA) data is cached in memory and disk.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 16 -->
+<tr>
+<td>CC_BFA_TRACKER_CACHE_MAX_JVM_ENTRIES</td>
+<td>
+Specifies the maximum number of entries in the BFA tracker cache, stored in JVM memory.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_BFA_CACHE_ENABLED</code> is <code>true</code>.
+</td>
+<td>50</td>
+</tr>
+
+<!-- 17 -->
+<tr>
+<td>CC_BFA_TRACKER_CACHE_RAM_PERCENTAGE</td>
+<td>
+Defines the percentage of the BFA tracker cache allocated to off-heap RAM.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_BFA_CACHE_ENABLED</code> is <code>true</code>.
+</td>
+<td>0</td>
+</tr>
+
+<!-- 18 -->
+<tr>
+<td>CC_BFA_TRACKER_CACHE_DISK_PERCENTAGE</td>
+<td>
+Defines the percentage of the BFA tracker cache allocated to disk.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_BFA_CACHE_ENABLED</code> is <code>true</code>.
+</td>
+<td>40</td>
+</tr>
+
+<!-- 19 -->
+<tr>
+<td>CC_SERVER_DB_USERNAME</td>
+<td>
+Specifies the username for the database connection.
+</td>
+<td>clipcascade</td>
+</tr>
+
+<!-- 19a -->
+<tr>
+<td>CC_ADMIN_USERNAME</td>
+<td>
+Initial admin username, used only to bootstrap the admin account when the user database is empty.
+<br><br>
+<strong>Note:</strong> <strong>Required</strong> — startup fails when unset or blank.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
+<!-- 19b -->
+<tr>
+<td>CC_ADMIN_PASSWORD</td>
+<td>
+Initial admin password. Never logged, redacted from the admin page, and never re-applied to an existing database.
+<br><br>
+<strong>Note:</strong> <strong>Required</strong> — startup fails when unset or blank.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
+<!-- 19c -->
+<tr>
+<td>CC_TRUSTED_PROXIES</td>
+<td>
+Comma-separated IPs/CIDRs of reverse proxies allowed to set <code>X-Forwarded-For</code> (used for per-IP brute-force protection). Entries from any other source are ignored, so clients cannot spoof their IP to bypass limits or lock out accounts.
+<br><br>
+<strong>Note:</strong> Add your proxy's address explicitly when it is outside the default ranges (e.g. a public-facing load balancer).
+</td>
+<td>127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16</td>
+</tr>
+
+<!-- 20 -->
+<tr>
+<td>CC_SERVER_DB_PASSWORD</td>
+<td>
+Defines the password used for encrypting the user database.
+<br><br>
+<strong>Note:</strong><br>
+- <strong>Required</strong> — startup fails when unset or blank.<br>
+- (H2) Use the <code>&lt;file password&gt; &lt;user password&gt;</code> format (two space-separated secrets).<br>
+- Once set, you must use the same password whenever you migrate the database.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
+<!-- 21 -->
+<tr>
+<td>CC_SERVER_DB_URL</td>
+<td>
+Defines the JDBC URL used to connect to the database.
+<br><br>
+<strong>Examples:</strong><br>
+- PostgreSQL: <code>jdbc:postgresql://localhost:5432/clipcascade</code>
+</td>
+<td>jdbc:h2:file:./database/clipcascade;CIPHER=AES;MODE=PostgreSQL</td>
+</tr>
+
+<!-- 22 -->
+<tr>
+<td>CC_SERVER_DB_DRIVER</td>
+<td>
+Specifies the JDBC driver class used by the database connection.
+<br><br>
+<strong>Example:</strong> <code>org.postgresql.Driver</code> for PostgreSQL.
+</td>
+<td>org.h2.Driver</td>
+</tr>
+
+<!-- 23 -->
+<tr>
+<td>CC_SERVER_DB_HIBERNATE_DIALECT</td>
+<td>
+Sets the Hibernate dialect for the chosen database.
+<br><br>
+<strong>Example:</strong> <code>org.hibernate.dialect.PostgreSQLDialect</code> for PostgreSQL.
+</td>
+<td>org.hibernate.dialect.H2Dialect</td>
+</tr>
+
+<!-- 24 -->
+<tr>
+<td>CC_SERVER_LOGGING_LEVEL</td>
+<td>
+Sets the logging verbosity level (TRACE, DEBUG, INFO).
+</td>
+<td>INFO</td>
+</tr>
+
+<!-- 25 -->
+<tr>
+<td>CC_SERVER_LOG_HISTORY_MAX_DAYS</td>
+<td>
+Specifies how many days of logs to retain before they are rotated or removed.
+</td>
+<td>30</td>
+</tr>
+
+<!-- 26 -->
+<tr>
+<td>CC_SERVER_LOG_MAX_CAPACITY</td>
+<td>
+Defines the maximum total size of logs to keep before older files are purged.
+</td>
+<td>1GB</td>
+</tr>
+
+<!-- 27 -->
+<tr>
+<td>CC_LOG_BRUTE_FORCE_TRACKER_ENABLED</td>
+<td>
+Enables detailed logging of each login attempt in the Brute Force Attack (BFA) tracker.
+<br>Useful for diagnosing repeated login failures.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 28 -->
+<tr>
+<td>CC_EXTERNAL_BROKER_ENABLED</td>
+<td>
+Determines whether an external STOMP broker is used for message handling.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 29 -->
+<tr>
+<td>CC_BROKER_HOST</td>
+<td>
+Specifies the STOMP broker host for external message handling.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>localhost</td>
+</tr>
+
+<!-- 30 -->
+<tr>
+<td>CC_BROKER_PORT</td>
+<td>
+Specifies the STOMP broker port for external message handling.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>61613</td>
+</tr>
+
+<!-- 31 -->
+<tr>
+<td>CC_BROKER_USERNAME</td>
+<td>
+Defines the STOMP broker username for external message handling.
+<br><br>
+<strong>Note:</strong> Required (startup fails) when <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
+<!-- 32 -->
+<tr>
+<td>CC_BROKER_PASSWORD</td>
+<td>
+Defines the STOMP broker password for external message handling.
+<br><br>
+<strong>Note:</strong> Required (startup fails) when <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>*(none — startup fails if unset)</td>
+</tr>
+
+<!-- 33 -->
+<tr>
+  <td>CC_MAX_WS_GLOBAL_CONNECTIONS</td>
+  <td>
+    Maximum number of global WebSocket connections allowed.
+    <br><br>
+    <strong>Supported Mode:</strong> Only applies when <code>CC_P2P_ENABLED</code> is <code>true</code>.
+    <br><br>
+    <strong>Note:</strong><br>
+    - This value represents the total number of active WebSocket connections allowed across all users.<br>
+    - <code>-1</code> means unlimited.
+  </td>
+  <td>-1</td>
+</tr>
+
+<!-- 34 -->
+<tr>
+  <td>CC_MAX_WS_CONNECTIONS_PER_USER</td>
+  <td>
+    Maximum number of WebSocket connections allowed per user.
+    <br><br>
+    <strong>Supported Mode:</strong> Only applies when <code>CC_P2P_ENABLED</code> is <code>true</code>.
+    <br><br>
+    <strong>Note:</strong><br>
+    - This value limits how many simultaneous WebSocket connections a single user can have.<br>
+    - <code>-1</code> means unlimited.
+  </td>
+  <td>-1</td>
+</tr>
+
+</tbody>
+</table>
+
+* * * * * * *
+
+### 🖥️📱 Client Apps
+- Logs (`clipcascade_log.log`) are stored in the installation directory on Windows and Linux, and in `<current user>/Library/Application Support/ClipCascade/` on macOS. These logs allow you to review application activity and are automatically reset each time the application is reopened, preventing indefinite growth.
+- The `DATA` file stores settings and user details, enabling the app to retain this information across both restarts and updates.
+- On Linux and macOS, a `ClipCascade.lock` file is created while the program is running. This file ensures that only a single instance of ClipCascade can be opened at a time.
+- All apps include a built-in update check feature, conveniently displayed on the homepage or taskbar. This ensures you can quickly check for updates within the app, keeping you up to date with the latest enhancements and security fixes.
+
+   <table>
+    <tr>
+        <td align="center"><strong>Desktop</strong></td>
+        <td align="center"><strong>Mobile</strong></td>
+    </tr>
+    <tr>
+        <td><img src="https://github.com/user-attachments/assets/92583d05-769e-4883-b427-7b4a41815610" alt="desktop_update" /></td>
+        <td><img src="https://github.com/user-attachments/assets/4b5b1d34-4f0f-4770-805c-b212d85aaa2b" alt="android_update" /></td>
+    </tr>
+   </table>
+  
+#### Extra Config/Advanced Settings (Desktop/Mobile):
+- **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+- **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience.
+   > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
+- **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
+- **Enable Notification**: Turn on this option to receive notifications about WebSocket disconnections and reconnections.
+- **Enable Encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the `salt` and `hash rounds`.
+
+  #### Desktop (Specific):
+  - **Default File Download Location**: When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked.
+  - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
+  
+  #### Android (Specific):
+  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Enable WebSocket Status Notification**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
+    
+    <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
+
+  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
+    
+    <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
+
+* * * * * * *
+
+### 🔒 End-to-End Encryption Configuration for Clipboard Data
+
+When encryption is enabled, clipboard data is encrypted directly on the client devices, ensuring true end-to-end encryption. The server does not store the encryption key, offering maximum security for your data.
+
+Enabling the encryption option is all that's needed to activate encryption by default. However, advanced users have the option to further customize the encryption process by adjusting the following parameters:
+
+- **Salt**: An optional string used as an additional input in the hashing process. For example, you could use a unique string like `"myCustomSalt123"` to enhance encryption security.
+  
+- **Hash Rounds**: An integer that specifies the number of hashing iterations. Increasing the hash rounds strengthens encryption by making it more computationally demanding. You can increase the default value of 664,937 to a higher number, such as 1,000,000, to boost security.
+
+It is crucial to ensure the same **salt** and **hash rounds** are used across all client devices to maintain compatibility.
+
+You can adjust these settings in the **Extra Config** section on the login page for users who require enhanced encryption options.
+
+<img src="https://github.com/user-attachments/assets/59252f1c-c149-43c2-b0a2-c09ca075a5c1" alt="e2e_p2s" />
+
+> Note: In a peer-to-peer architecture, clipboard data is broadcasted to all connected devices directly without the need for a server. The encryption mechanism remains unchanged, ensuring the same level of security across all devices.
+
+* * * * * * *
+
+### 📋 Clipboard Functioning
+- **Text and Images**: These are directly copied to the clipboard, enabling seamless sharing across devices.  
+- **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Since the clipboard does not store files, only their file paths are retained.  
+  
+   <table>
+    <tr>
+        <td align="center"><strong>Desktop</strong></td>
+        <td align="center"><strong>Mobile</strong></td>
+    </tr>
+    <tr>
+        <td><img src="https://github.com/user-attachments/assets/c4f06a97-1fc5-47e6-9ff5-d4dc3ff41c68" alt="desktop_tray_icon" /></td>
+        <td><img src="https://github.com/user-attachments/assets/7708d786-3c95-4892-8815-0792fc2fd465" alt="android_notification" width="150" /></td>
+    </tr>
+    <tr>
+	<td><img src="https://github.com/user-attachments/assets/eca756ad-76de-4fb9-ba14-619e92172758" alt="desktop_tray_options" width="150" /></td>
+        <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
+    </tr>
+   </table>
+
+
+- **Clipboard Monitoring**:
+
+   | **Platform**              | **Implementation Details**                                                                                                                                              |
+   |---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+   | **Windows**               | Uses `win32gui`, `win32api`, `win32con`, and `win32clipboard` to capture clipboard changes in an event-driven manner.                                         |
+   | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
+   | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner. **Default UI:** GUI (tray).                                                         |
+   | **Linux (XWayland)**      | Same X11-style stack as above: `Gtk.Clipboard` when possible, otherwise `xclip` polling (~0.3s). **Default UI:** GUI—not CLI. Detection treats XWayland as a Wayland session that also has `DISPLAY` and `WAYLAND_DISPLAY` set. |
+   | **Linux (Unknown)**     | Treated like the X11-style path for defaults (GTK / `xclip` as above). **Default UI:** GUI. |
+   | **Linux (native Wayland, Hyprland)** | Tries **`wl-paste --watch` first** (**event-driven** where the compositor supports it: clipboard changes wake the watcher instead of a fixed timer). If `--watch` is not supported or exits immediately, falls back to **polling** `wl-paste -l` (default every 3 seconds; `--polling`). **Default UI:** CLI (terminal). Override with `--gui` / `--xmode`. |
+   | **Android**               | Uses `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
+
+
+  <table border="1">
+  <tr>
+    <th rowspan="2">Type</th>
+    <th colspan="5" align="center">Send</th>
+    <th colspan="5" align="center">Receive</th>
+  </tr>
+  <tr>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td>Text</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱ / share</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+  </tr>
+  <tr>
+    <td>Image</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱ / share</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+  </tr>
+  <tr>
+    <td>Files</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>share</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+  </tr>
+  </table>
+
+
+## ⇄ Reverse Proxy Setup
+
+Below is a screenshot demonstrating how to configure a reverse proxy using **Cloudflare Tunnels**. Similar configurations can be applied with other providers as well.
+
+<img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy web" width="600" />
+
+<img src="https://github.com/user-attachments/assets/5cdca092-8d6b-4b3e-ac2b-fb10390a4ca2" alt="login form desktop" width="400" />
+
+### Note:
+For other providers, you may need to configure HTTP to HTTPS redirection manually by adding a permanent redirection rule.
+
+Example: Caddy Configuration
+```
+http://clipcascade.sample.com {
+	redir https://clipcascade.sample.com{uri} permanent
+}
+```
+
+### Note:
+Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`, `ws://localhost:8080/p2psignaling`.
+
+
+## 🔓 SSO Proxy Bypass Rules
+
+When fronting ClipCascade with an SSO proxy (Auth0, Keycloak, etc.), you’ll need to exempt both the unauthenticated HTTP URLs _and_ the raw-WebSocket handshake endpoints. Add these rules to your proxy’s “bypass” or “whitelist” list:
+
+#### HTTP(S) endpoints
+```
+/login
+/logout
+/signup
+/captcha
+/help
+/donate
+/health
+/ping
+/assets/**
+```
+
+#### WebSocket handshake endpoints
+```
+/p2psignaling   # P2P mode
+/clipsocket     # P2S mode
+```
+
+## 🔧 Usage
+
+1. **Login:** Use your credentials to log into ClipCascade.
+2. **Sync:** Copy any text or content to your clipboard, and it will automatically sync across your connected devices.
+3. **Monitor:** Open the web-based monitoring page to see your clipboard history in real-time.
+
+## 🌍 Contributing
+
+Contributions are always welcome! Whether it's a feature request or a pull request, your input helps make ClipCascade even better.
+
+## 📜 License
+
+ClipCascade is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE](https://github.com/Sathvik-Rao/ClipCascade/blob/main/LICENSE) file for more details.
+
+
+## 🛠️ TODO
+
+Here are some planned features and improvements for future releases of ClipCascade:
+
+🗳️ **Poll for Prioritization**: Cast your vote to prioritize features [here](https://github.com/Sathvik-Rao/ClipCascade/discussions/25).
+
+- **Clipboard Data Storage:** Implement secure storage for clipboard data to store and access it later. 
+- **OIDC/OAuth Authentication:** Integrate OpenID Connect (OIDC) and OAuth authentication for user login and management.  
+- **iOS Support:** Develop and Release a version of ClipCascade for iOS.  
+
+
+## 📦 Versioning
+
+ClipCascade uses **Semantic Versioning (SemVer)** for releases:
+
+- **🔴 Major (X)**: Incremented for releases that introduce **backward incompatible changes**.
+- **🟠 Minor (Y)**: Incremented for **backward compatible functionality** added.
+- **🟢 Patch (Z)**: Incremented for **backward compatible bug fixes** or minor improvements.
+
+### Version Format
+
+**X.Y.Z**  
+Where:
+- **X** is the major version.
+- **Y** is the minor version.
+- **Z** is the patch version.
+  
+Example versioning:
+- **1.0.0**: Initial release.
+- **1.1.0**: Added new features, backward compatible.
+- **2.0.0**: Major changes, **not backward compatible**.
+
+
+## 💬 Support
+
+If you have any issues or questions, feel free to open an issue on GitHub, start a discussion, or reach out to me via [email](mailto:sathvik.poladi@gmail.com).
+
