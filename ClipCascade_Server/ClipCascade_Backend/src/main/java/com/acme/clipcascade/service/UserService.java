@@ -47,9 +47,26 @@ public class UserService {
         return userRepo.count() == 0;
     }
 
-    public Users registerUser(Users user) {
-        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword())); // hash password
-        return userRepo.save(user); // save user
+    public String hashPasswordForStorage(String password) {
+        return bCryptPasswordEncoder.encode(password);
+    }
+
+    public Users createUser(Users user) {
+        return userRepo.save(user); // password must already be hashed by the caller
+    }
+
+    /**
+     * Constant-time comparison of a submitted password (normally the client's
+     * SHA3-512 hex) against the stored bcrypt hash.
+     */
+    public boolean verifyPassword(String username, String candidate) {
+        if (candidate == null) {
+            return false;
+        }
+
+        return userRepo.findById(username)
+                .map(user -> bCryptPasswordEncoder.matches(candidate, user.getPassword()))
+                .orElse(false);
     }
 
     public boolean userExists(String username) {

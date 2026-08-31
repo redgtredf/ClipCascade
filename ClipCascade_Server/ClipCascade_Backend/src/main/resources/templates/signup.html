@@ -169,6 +169,12 @@
             return;
           }
 
+          // Check minimum length (server enforces the same policy)
+          if (passwordField.value.length < 8) {
+            alert("Password must be at least 8 characters.");
+            return;
+          }
+
           const formData = new FormData(signupForm);
           formData.set("password", sha3_512(passwordField.value)); // hash the password
           formData.delete("confirmPassword"); // Remove the confirm password field

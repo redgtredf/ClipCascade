@@ -62,10 +62,19 @@ public class FacadeUserService {
     }
 
     public Users registerUser(Users user) {
-        if (!UserValidator.isValid(user)
-                || userService.userExists(user.getUsername())
-                || userInfoService.userExists(user.getUsername())) {
+        if (!UserValidator.isValid(user)) {
+            return null;
+        }
 
+        /*
+         * Always perform the expensive password hash BEFORE the existence
+         * check, so that response timing cannot reveal whether the username
+         * is already taken (signup username enumeration via timing).
+         */
+        String hashedPassword = userService.hashPasswordForStorage(user.getPassword());
+
+        if (userService.userExists(user.getUsername())
+                || userInfoService.userExists(user.getUsername())) {
             return null;
         }
 
@@ -77,7 +86,8 @@ public class FacadeUserService {
 
         userInfoService.registerNewUser(user.getUsername());
 
-        return userService.registerUser(user);
+        user.setPassword(hashedPassword);
+        return userService.createUser(user);
     }
 
     public Users updateUsername(
@@ -121,6 +131,29 @@ public class FacadeUserService {
         return userService.deleteUser(username);
     }
 
+    /**
+     * Self-service password change: the caller must prove knowledge of the
+     * current password before it can be replaced.
+     */
+    public Users updatePasswordWithVerification(
+            String username,
+            String oldPassword,
+            String newPassword) {
+
+        if (!UserValidator.isValidUsername(username)
+                || !UserValidator.isValidPassword(newPassword)
+                || !userService.verifyPassword(username, oldPassword)) {
+
+            return null;
+        }
+
+        return updatePasswordInternal(username, newPassword);
+    }
+
+    /**
+     * Admin-initiated reset of another user's password (no old password
+     * required; the endpoint is already admin-gated).
+     */
     public Users updatePassword(String username, String newPassword) {
         if (!UserValidator.isValidUsername(username)
                 || !UserValidator.isValidPassword(newPassword)) {
@@ -128,6 +161,10 @@ public class FacadeUserService {
             return null;
         }
 
+        return updatePasswordInternal(username, newPassword);
+    }
+
+    private Users updatePasswordInternal(String username, String newPassword) {
         userInfoService.setPasswordChangeTime(username, TimeUtility.getCurrentTimeInSeconds());
 
         return userService.updatePassword(username, newPassword);

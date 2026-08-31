@@ -847,18 +847,29 @@ function onChangeUsernameClick() {
 }
 
 function onChangePasswordClick() {
-  const newPassword = prompt("Enter your new password:");
-  if (!newPassword) {
-    alert("Password cannot be empty.");
+  const oldPassword = prompt("Enter your current password:");
+  if (!oldPassword) {
+    alert("Current password cannot be empty.");
     return;
   }
-  const hashedPassword = sha3_512(newPassword);
+
+  const newPassword = prompt("Enter your new password (at least 8 characters):");
+  if (!newPassword || newPassword.length < 8) {
+    alert("New password must be at least 8 characters.");
+    return;
+  }
+
+  const hashedOldPassword = sha3_512(oldPassword);
+  const hashedNewPassword = sha3_512(newPassword);
 
   $.ajax({
     url: ENDPOINTS.updatePassword,
     type: "PUT",
     contentType: "application/json",
-    data: JSON.stringify({ newPassword: hashedPassword }),
+    data: JSON.stringify({
+      oldPassword: hashedOldPassword,
+      newPassword: hashedNewPassword,
+    }),
     success: (res) => {
       alert(res);
     },
@@ -987,6 +998,10 @@ function onAddUserSubmit(e) {
   }
 
   const rawPassword = $(SELECTORS.addPasswordInput).val();
+  if (!rawPassword || rawPassword.length < 8) {
+    alert("Password must be at least 8 characters.");
+    return;
+  }
   const enabled = $(SELECTORS.addEnabledSelect).val() === "true";
   const hashedPassword = sha3_512(rawPassword);
 
@@ -1033,6 +1048,10 @@ function onEditUserSubmit(e) {
     // 2) Update user password if provided
     let passwordUpdatePromise = Promise.resolve();
     if (rawNewPassword) {
+      if (rawNewPassword.length < 8) {
+        alert("New password must be at least 8 characters.");
+        return;
+      }
       const hashedPassword = sha3_512(rawNewPassword);
       passwordUpdatePromise = $.ajax({
         url: ENDPOINTS.adminUpdateUserPassword,

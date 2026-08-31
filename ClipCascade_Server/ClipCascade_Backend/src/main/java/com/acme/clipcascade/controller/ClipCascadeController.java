@@ -12,6 +12,8 @@ import javax.imageio.ImageIO;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -43,7 +45,6 @@ import com.acme.clipcascade.service.WebSocketStatsService;
 import com.acme.clipcascade.utils.ClipboardDataValidator;
 import com.acme.clipcascade.utils.ResponseEntityUtil;
 import com.acme.clipcascade.utils.TimeUtility;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.annotation.Nullable;
@@ -55,7 +56,6 @@ import jakarta.transaction.Transactional;
 
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.bind.annotation.PutMapping;
 
@@ -415,15 +415,20 @@ public class ClipCascadeController {
     }
 
     @GetMapping("/admin/bfa-snapshot-file")
-    @ResponseBody
-    public byte[] getBfaSnapshotFile(
-            @AuthenticationPrincipal UserPrincipal userPrincipal) throws JsonProcessingException {
+    public ResponseEntity<byte[]> getBfaSnapshotFile(
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
 
         if (!userPrincipal.isAdmin()) {
-            return null;
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        return bruteForceProtectionService.getTrackerFile();
+        try {
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(bruteForceProtectionService.getTrackerFile());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     @GetMapping("/admin/bfa-snapshot")
@@ -569,8 +574,9 @@ public class ClipCascadeController {
             @RequestBody Map<String, String> payload) {
 
         return ResponseEntityUtil.buildResponse(
-                facadeUserService.updatePassword(
+                facadeUserService.updatePasswordWithVerification(
                         userPrincipal.getUsername(),
+                        payload.get("oldPassword"),
                         payload.get("newPassword")) != null,
                 "Password updated successfully",
                 "Invalid user or password");

@@ -46,6 +46,7 @@ public class ProductionConfigValidator implements EnvironmentPostProcessor, Orde
 
         requireNonBlank(environment, "CC_ADMIN_USERNAME");
         requireNonBlank(environment, "CC_ADMIN_PASSWORD");
+        requireMinLength(environment, "CC_ADMIN_PASSWORD", 8);
 
         if (isExternalBrokerEnabled(environment)) {
             requireNonBlank(environment, "CC_BROKER_USERNAME");
@@ -68,6 +69,15 @@ public class ProductionConfigValidator implements EnvironmentPostProcessor, Orde
             throw new IllegalStateException(
                     "Missing required environment variable '" + name
                             + "'. Refusing to start with an insecure default; set it explicitly before starting the server.");
+        }
+    }
+
+    private void requireMinLength(Environment environment, String name, int minLength) {
+        String value = environment.getProperty(name);
+        if (value != null && !value.isBlank() && value.length() < minLength) {
+            throw new IllegalStateException(
+                    "Environment variable '" + name + "' must be at least "
+                            + minLength + " characters long. Refusing to start with a weak credential.");
         }
     }
 

@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
 import java.awt.image.BufferedImage;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -38,7 +39,7 @@ public class CaptchaService {
 
         // This service is used only when signup is enabled
         if (clipCascadeProperties.isSignupEnabled()) {
-            RANDOM = new Random();
+            RANDOM = new SecureRandom();
             FONTS = fonts();
             COLORS = colors();
             SRC_CHARS = generateCharArray();
@@ -85,15 +86,17 @@ public class CaptchaService {
         String captchaAnswer = (String) session.getAttribute(captchaSessionId);
         session.removeAttribute(captchaSessionId);
 
+        // Null-safe: a missing input or a missing stored answer both fail
+        // validation instead of throwing.
+        if (captchaAnswer == null || input == null) {
+            return false;
+        }
+
         if (!caseSensitive) {
             input = input.toLowerCase();
         }
 
-        if (captchaAnswer != null && captchaAnswer.equals(input)) {
-            return true;
-        } else {
-            return false;
-        }
+        return captchaAnswer.equals(input);
     }
 
     public Captcha createCaptcha(int width, int height, int sizeOfCaptcha) {
