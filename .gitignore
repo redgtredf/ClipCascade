@@ -4,3 +4,9 @@ screenshots/
 .vscode/
 __pycache__/
 *.py[cod]
+# environment / secrets
+.env
+
+# tool caches
+.pytest_cache/
+.ruff_cache/

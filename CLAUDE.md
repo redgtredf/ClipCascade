@@ -10,6 +10,13 @@ ClipCascade is three independently-deployable components in one repo, joined onl
 - `ClipCascade_Server/ClipCascade_Backend/` — Spring Boot (Java 21) relay server + static/Thymeleaf dashboard
 - `ClipCascade_Mobile/` — React Native client (Android only — no maintained iOS target)
 
+## How to run (dev ports)
+
+Always start/test on these assigned ports (see `.claude/ports.md`, `.claude/launch.json`):
+
+- Server (dev): **8731** — `CC_PORT=8731` with `./mvnw spring-boot:run` (prod Docker uses 8080)
+- Metro (mobile): **8081** — `npm start`
+
 ## Commands
 
 ### Desktop (`ClipCascade_Desktop/`)

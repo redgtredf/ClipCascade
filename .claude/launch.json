@@ -1,0 +1,13 @@
+{
+  "server": {
+    "command": "cd ClipCascade_Server/ClipCascade_Backend && mvnw.cmd spring-boot:run",
+    "port": 8731,
+    "env": { "CC_PORT": "8731" },
+    "purpose": "ClipCascade Spring server (dev)"
+  },
+  "metro": {
+    "command": "cd ClipCascade_Mobile/src && npm start",
+    "port": 8081,
+    "purpose": "React Native Metro bundler (default port, kept)"
+  }
+}
