@@ -7,6 +7,7 @@ never adds meaningful synchronous latency to the send/receive path.
 """
 
 import logging
+import threading
 import time
 
 from PIL import Image
@@ -191,6 +192,49 @@ def test_remote_files_unsafe_name_creates_no_history_but_paste_still_succeeds(tm
     assert sink.events == []
 
 
+def test_unsafe_filename_capture_never_logs_the_filename(tmp_config, caplog):
+    import base64
+    import json
+    import traceback
+
+    sink = FakeHistorySink()
+    manager = _make_manager(tmp_config, sink, "p2s")
+
+    class FakeTray:
+        def __init__(self):
+            self.enabled_with = None
+
+        def enable_files_download(self, files):
+            self.enabled_with = files
+
+        def disable_files_download(self):
+            pass
+
+    tray = FakeTray()
+    manager.set_tray_ref(tray)
+
+    unsafe_name = "../escape.txt"
+    payload_json = json.dumps(
+        {unsafe_name: base64.b64encode(b"unsafe").decode("utf-8")}
+    )
+    with caplog.at_level(logging.WARNING):
+        manager.base64_to_clipboard(payload_json, "files")
+
+    # Paste/download-enable behaviour is unaffected; only the history
+    # capture is dropped.
+    assert tray.enabled_with is not None
+    assert sink.events == []
+
+    # The unsafe filename must never reach the logs — neither through a
+    # log message nor through an exception/traceback attached to a record.
+    for record in caplog.records:
+        assert unsafe_name not in record.getMessage()
+        assert record.exc_text is None
+        if record.exc_info is not None:
+            formatted = "".join(traceback.format_exception(*record.exc_info))
+            assert unsafe_name not in formatted
+
+
 def test_malformed_remote_base64_creates_no_history(tmp_config, caplog):
     sink = FakeHistorySink()
     manager = _make_manager(tmp_config, sink)
@@ -329,6 +373,40 @@ def test_dedup_does_not_merge_local_and_remote_direction(tmp_config, monkeypatch
 
     assert len(sink.events) == 2
     assert {e.direction for e in sink.events} == {"local", "remote"}
+
+
+# --- dedup cache thread safety ------------------------------------------------
+
+
+def test_dedup_cache_survives_concurrent_captures_from_many_threads(tmp_config):
+    sink = FakeHistorySink()
+    manager = _make_manager(tmp_config, sink)
+
+    def worker():
+        for _ in range(50):
+            manager._try_capture_history(
+                lambda: manager._build_local_capture_event(
+                    "text", "shared-payload", "shared-payload"
+                )
+            )
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+
+    assert all(not thread.is_alive() for thread in threads)
+    # Sync behaviour unaffected: whatever the interleaving, only
+    # correctly-formed local captures of the shared payload get recorded.
+    for event in sink.events:
+        assert event.direction == "local"
+        assert event.payload == "shared-payload"
+        assert event.payload_type == "text"
+    # Coherence bound: every attempt hashes to the same single dedup digest
+    # (identical content + type + direction + source scope), so the cache can
+    # only ever hold one entry no matter how the threads interleave.
+    assert len(manager._history_dedup_cache) <= 1
 
 
 # --- failure isolation --------------------------------------------------------

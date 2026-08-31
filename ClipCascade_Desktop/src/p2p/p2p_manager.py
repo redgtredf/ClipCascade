@@ -14,6 +14,7 @@ from core.fragment_utils import (
     utf8_safe_chunks,
 )
 from interfaces.ws_interface import WSInterface
+from core.device_metadata import extract_remote_identity, outgoing_device_metadata
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
@@ -55,6 +56,7 @@ class P2PManager(WSInterface):
         # Fragment variables
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
         self.receiving_fragments: dict = {}  # Mapping: fragmentid:str -> fragment:list[str]
+        self.receiving_fragment_devices: dict = {}  # Mapping: fragmentid:str -> device metadata (T3)
         self.sending_fragment_stats: str = None
         self.receiving_fragment_stats: str = None
 
@@ -742,6 +744,13 @@ class P2PManager(WSInterface):
                     "totalFragments": len(fragments),
                     "combinedRawPayloadSizeInBytes": raw_payload_size_in_bytes,
                 }
+                # Optional device metadata: identical on every fragment of
+                # the stream; the receiver rejects any later fragment that
+                # conflicts with the established stream state. Absent when no
+                # identity was generated (legacy-shaped envelope).
+                device_metadata = outgoing_device_metadata(self.config)
+                if device_metadata is not None:
+                    metadata["device"] = device_metadata
 
                 self.sending_fragment_id = metadata["id"]
                 for fragment in fragments:
@@ -774,6 +783,7 @@ class P2PManager(WSInterface):
 
     def reset_receiving_fragments(self):
         self.receiving_fragments = {}
+        self.receiving_fragment_devices = {}
         self.receiving_fragment_stats = None
 
     def _receive(self, frame: any) -> str:
@@ -785,6 +795,11 @@ class P2PManager(WSInterface):
             payload = body["payload"]
             payload_type = body.get("type", "text")
             metadata = body.get("metadata")
+            device = metadata.get("device") if isinstance(metadata, dict) else None
+            # Source identity delivered with the message: the established
+            # stream state for a fragmented stream, the frame's own value
+            # otherwise.
+            device_for_delivery = device
 
             # Check if the payload exceeds the maximum size: first layer protection
             if (
@@ -831,9 +846,28 @@ class P2PManager(WSInterface):
                     f"{fragment_index + 1}/{total_fragments}"
                 )
                 if metadata["id"] in self.receiving_fragments:
+                    # One fragmented stream has one source: the stream state
+                    # established by its first fragment governs. A later
+                    # fragment presenting conflicting device metadata rejects
+                    # the whole stream before reassembly (and therefore
+                    # before any history insertion); omitting it keeps the
+                    # established state.
+                    established_device = self.receiving_fragment_devices.get(
+                        metadata["id"]
+                    )
+                    if device is not None and established_device != device:
+                        self.reset_receiving_fragments()
+                        logging.error(
+                            "Failed to receive: conflicting device metadata within "
+                            "one fragment stream; dropping stream."
+                        )
+                        return
                     self.receiving_fragments[metadata["id"]][fragment_index] = payload
                     if fragment_index == total_fragments - 1:
                         if all(s != "" for s in self.receiving_fragments[metadata["id"]]):
+                            device_for_delivery = self.receiving_fragment_devices.get(
+                                metadata["id"]
+                            )
                             payload = "".join(self.receiving_fragments[metadata["id"]])
                         else:
                             self.reset_receiving_fragments()
@@ -846,6 +880,9 @@ class P2PManager(WSInterface):
                 else:
                     self.reset_receiving_fragments()
                     self.receiving_fragments[metadata["id"]] = [""] * total_fragments
+                    # First fragment seen for this stream establishes its
+                    # device-metadata state (which may legitimately be None).
+                    self.receiving_fragment_devices[metadata["id"]] = device
                     self.receiving_fragments[metadata["id"]][fragment_index] = payload
                     return
 
@@ -856,8 +893,12 @@ class P2PManager(WSInterface):
 
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_receiving_fragments()
+                device_id, device_name = extract_remote_identity(device_for_delivery)
                 self.clipboard_manager.base64_to_clipboard(
-                    base64_string=payload, type_=payload_type
+                    base64_string=payload,
+                    type_=payload_type,
+                    source_device_id=device_id,
+                    source_device_name=device_name,
                 )
         except json.decoder.JSONDecodeError:
             logging.error("If cipher is enabled, please make sure it is enabled on all devices")

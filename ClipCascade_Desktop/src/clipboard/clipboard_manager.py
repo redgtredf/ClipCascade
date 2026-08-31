@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import threading
 import time
 import xxhash
 from datetime import datetime, timezone
@@ -82,6 +83,9 @@ class ClipboardManager:
         # dedup key -> monotonic timestamp of the last capture attempt seen
         # for that (payload_type, direction/source, canonical-content) tuple.
         self._history_dedup_cache: dict = {}
+        # Serializes the multi-thread capture paths (clipboard monitor thread
+        # + ws/p2p receiver threads) that mutate/iterate the cache above.
+        self._history_dedup_lock = threading.Lock()
 
         if PLATFORM.startswith(LINUX) and XMODE:
             self.is_x_clipboard_owner = clipboard_monitor.is_x_clipboard_owner()
@@ -237,14 +241,22 @@ class ClipboardManager:
         except Exception as e:
             logging.error(f"Failed to convert clipboard data to base64: {e}")
 
-    def base64_to_clipboard(self, base64_string: str, type_: str = "text"):
+    def base64_to_clipboard(
+        self,
+        base64_string: str,
+        type_: str = "text",
+        source_device_id: Optional[str] = None,
+        source_device_name: Optional[str] = None,
+    ):
         try:
             if type_ == "text":
                 txt = base64_string
                 if self.is_clipboard_size_within_limit(txt, type_):
                     self.paste(txt, type_)
                     self._try_capture_history(
-                        lambda: self._build_remote_capture_event("text", txt)
+                        lambda: self._build_remote_capture_event(
+                            "text", txt, source_device_id, source_device_name
+                        )
                     )
             elif type_ == "image":
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
@@ -252,7 +264,10 @@ class ClipboardManager:
                     self.paste(img, type_)
                     self._try_capture_history(
                         lambda: self._build_remote_capture_event(
-                            "image", base64.b64decode(base64_string)
+                            "image",
+                            base64.b64decode(base64_string),
+                            source_device_id,
+                            source_device_name,
                         )
                     )
             elif type_ == "files":
@@ -262,7 +277,9 @@ class ClipboardManager:
                 if self.is_clipboard_size_within_limit(file_objects, type_):
                     self.paste(file_objects, type_)
                     self._try_capture_history(
-                        lambda: self._build_remote_files_capture_event(file_objects)
+                        lambda: self._build_remote_files_capture_event(
+                            file_objects, source_device_id, source_device_name
+                        )
                     )
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
@@ -280,10 +297,10 @@ class ClipboardManager:
             event = build_event()
             if event is not None:
                 self.history_sink.record(event)
-        except Exception:
-            logging.exception(
-                "History capture failed; continuing without recording "
-                "(metadata only, no payload logged)"
+        except Exception as error:
+            logging.warning(
+                "History capture failed and was dropped (%s); continuing without recording",
+                type(error).__name__,
             )
 
     def _build_local_capture_event(
@@ -312,33 +329,56 @@ class ClipboardManager:
         )
 
     def _build_remote_capture_event(
-        self, payload_type: str, canonical_payload
+        self,
+        payload_type: str,
+        canonical_payload,
+        source_device_id: Optional[str] = None,
+        source_device_name: Optional[str] = None,
     ) -> Optional[HistoryCaptureEvent]:
         if self._should_coalesce_capture(
-            "remote", self.history_transport, payload_type, canonical_payload
+            "remote",
+            self._remote_source_scope(source_device_id),
+            payload_type,
+            canonical_payload,
         ):
             return None
         return HistoryCaptureEvent(
             direction="remote",
             payload_type=payload_type,
             payload=canonical_payload,
-            source_device_id=None,
-            source_device_name=None,
+            source_device_id=source_device_id,
+            source_device_name=source_device_name,
             transport=self.history_transport,
             occurred_at_utc=datetime.now(timezone.utc),
         )
 
     def _build_remote_files_capture_event(
-        self, file_objects: dict
+        self,
+        file_objects: dict,
+        source_device_id: Optional[str] = None,
+        source_device_name: Optional[str] = None,
     ) -> Optional[HistoryCaptureEvent]:
         """Only reached after size validation and a successful `paste()`.
         Safe-name validation runs here, for the history record only: an
-        unsafe name raises and `_try_capture_history` drops the capture,
-        while the already-completed `paste()` (and the existing
-        save-time validation in `save_received_files`) are unaffected."""
-        safe_files = self.sanitize_received_filenames(file_objects)
+        unsafe name drops the capture silently (no event is built, and
+        nothing about the name is ever logged), while the already-completed
+        `paste()` (and the existing save-time validation in
+        `save_received_files`) are unaffected."""
+        try:
+            safe_files = self.sanitize_received_filenames(file_objects)
+        except DocumentNameError:
+            return None
         files_bytes = {name: obj.getvalue() for name, obj in safe_files.items()}
-        return self._build_remote_capture_event("files", files_bytes)
+        return self._build_remote_capture_event(
+            "files", files_bytes, source_device_id, source_device_name
+        )
+
+    def _remote_source_scope(self, source_device_id: Optional[str]) -> str:
+        """Dedup scope for remote captures: transport + device once metadata
+        is known, transport alone as the legacy fallback (no metadata)."""
+        if source_device_id:
+            return f"{self.history_transport}:{source_device_id}"
+        return self.history_transport
 
     @staticmethod
     def _files_to_bytes_map(content_str: str) -> dict:
@@ -349,9 +389,9 @@ class ClipboardManager:
     #
     # Direction/source-aware: local and remote captures of identical content
     # never coalesce with each other (separate `source_scope` keys), matching
-    # "direction must never be conflated". Device-level source identity is
-    # T3's scope; `source_scope` uses direction ("local") or transport
-    # ("p2s"/"p2p") as the best available proxy until then.
+    # "direction must never be conflated". Device-level source identity
+    # (T3) refines the remote scope to transport + device id when metadata
+    # was received; the transport alone remains the legacy fallback.
 
     @staticmethod
     def _canonical_bytes_for_dedup(payload_type: str, canonical_payload) -> bytes:
@@ -386,14 +426,15 @@ class ClipboardManager:
             )
         ).hexdigest()
 
-        now = time.monotonic()
-        cache = self._history_dedup_cache
-        cutoff = now - _HISTORY_DEDUP_CACHE_TTL_SECONDS
-        for stale_key in [key for key, seen_at in cache.items() if seen_at < cutoff]:
-            del cache[stale_key]
+        with self._history_dedup_lock:
+            now = time.monotonic()
+            cache = self._history_dedup_cache
+            cutoff = now - _HISTORY_DEDUP_CACHE_TTL_SECONDS
+            for stale_key in [key for key, seen_at in cache.items() if seen_at < cutoff]:
+                del cache[stale_key]
 
-        last_seen = cache.get(digest)
-        cache[digest] = now
+            last_seen = cache.get(digest)
+            cache[digest] = now
         return last_seen is not None and (now - last_seen) <= _HISTORY_DEDUP_WINDOW_SECONDS
 
     @staticmethod

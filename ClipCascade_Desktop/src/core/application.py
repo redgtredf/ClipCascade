@@ -5,6 +5,7 @@ import sys
 from core.constants import *
 
 from core.config import Config
+from core.device_metadata import ensure_device_identity
 from utils.request_manager import RequestManager
 from utils.cipher_manager import CipherManager
 from stomp_ws.stomp_manager import STOMPManager
@@ -343,6 +344,7 @@ class Application:
             self.setup_logging()
             self.ensure_single_instance()
             self.config.load()
+            ensure_device_identity(self.config)
             self.authenticate_and_connect()
             self.config.save()
             update_available = self.get_version_update_status()

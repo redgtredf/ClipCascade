@@ -29,6 +29,9 @@ class Config:
             "server_mode": "P2S",
             "stun_url": "",
             "ssl_ca_bundle": "",
+            "device_id": "",
+            "device_name": "",
+            "share_device_name": True,
         }
 
     def save(self):

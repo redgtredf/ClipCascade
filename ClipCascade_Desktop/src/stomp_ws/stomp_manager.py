@@ -6,6 +6,7 @@ import time
 from interfaces.ws_interface import WSInterface
 from stomp_ws.client import Client
 from core.config import Config
+from core.device_metadata import extract_remote_identity, outgoing_device_metadata
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
@@ -115,7 +116,13 @@ class STOMPManager(WSInterface):
                         payload = CipherManager.encode_to_json_string(
                             **self.cipher_manager.encrypt(payload)
                         )
-                    body = json.dumps({"payload": payload, "type": payload_type})
+                    body_dict = {"payload": payload, "type": payload_type}
+                    # Optional device metadata: legacy receivers ignore the
+                    # extra field; absent when no identity was generated.
+                    device_metadata = outgoing_device_metadata(self.config)
+                    if device_metadata is not None:
+                        body_dict["metadata"] = device_metadata
+                    body = json.dumps(body_dict)
                     self.client.send(destination=SEND_DESTINATION, body=body)
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
@@ -126,6 +133,9 @@ class STOMPManager(WSInterface):
                 body = json.loads(frame.body)
                 payload = body["payload"]
                 payload_type = body.get("type", "text")
+                # Optional device metadata: absent/invalid maps to "Remote
+                # device" in history, never to a rejected payload.
+                device_id, device_name = extract_remote_identity(body.get("metadata"))
                 if self.config.data["cipher_enabled"]:
                     payload = self.cipher_manager.decrypt(
                         **CipherManager.decode_from_json_string(payload)
@@ -133,7 +143,10 @@ class STOMPManager(WSInterface):
 
                 if self.clipboard_manager.has_clipboard_changed(payload):
                     self.clipboard_manager.base64_to_clipboard(
-                        base64_string=payload, type_=payload_type
+                        base64_string=payload,
+                        type_=payload_type,
+                        source_device_id=device_id,
+                        source_device_name=device_name,
                     )
         except json.decoder.JSONDecodeError:
             logging.error(

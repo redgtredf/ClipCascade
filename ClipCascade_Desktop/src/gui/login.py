@@ -7,6 +7,7 @@ import os
 
 from utils.window_manager import center_window
 from core.config import Config
+from core.device_metadata import DEVICE_NAME_MAX_CHARS, sanitize_device_name
 from gui.info import CustomDialog
 from core.constants import *
 
@@ -421,6 +422,43 @@ class LoginForm(tk.Tk):
             "Example: /etc/ssl/corp-root.pem or C:\\\\certs\\\\corp-root.pem",
         )
 
+        # Device Name (optional, editable display name)
+        device_name_label = ttk.Label(self.extra_frame, text="Device Name:")
+        device_name_label.grid(row=8, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.device_name_entry = ttk.Entry(
+            self.extra_frame, width=50, font=("Helvetica", 13)
+        )
+        self.device_name_entry.insert(0, self.config.data.get("device_name") or "")
+        self.device_name_entry.grid(row=8, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [device_name_label, self.device_name_entry],
+            "Optional friendly name for this device (max 64 characters).\n\n"
+            "Defaults to this computer's name; change it freely. It is shown on "
+            "your other devices' clipboard history when name sharing is enabled below.\n"
+            "Leave empty to send no name.",
+        )
+
+        # Share Device Name Checkbox (privacy-sensitive)
+        share_device_name_label = ttk.Label(self.extra_frame, text="Share Device Name:")
+        share_device_name_label.grid(row=9, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.share_device_name_var = tk.BooleanVar(
+            value=self.config.data.get("share_device_name", True)
+        )
+        self.share_device_name_checkbox = ttk.Checkbutton(
+            self.extra_frame,
+            variable=self.share_device_name_var,
+            takefocus=False,
+        )
+        self.share_device_name_checkbox.grid(row=9, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [share_device_name_label, self.share_device_name_checkbox],
+            "Privacy disclosure: when enabled, your device name travels with every "
+            "clipboard message and is visible to the relay server and to your other "
+            "devices.\n\n"
+            "When disabled, no name is sent. A random, non-hardware device ID is "
+            "always included so your devices can tell messages apart.",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
@@ -460,6 +498,7 @@ class LoginForm(tk.Tk):
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
             self.ssl_ca_bundle_entry,
+            self.device_name_entry,
         )
         for w in extra_entries:
             w.configure(takefocus=bool(self.show_extra))
@@ -497,6 +536,7 @@ class LoginForm(tk.Tk):
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
             self.ssl_ca_bundle_entry,
+            self.device_name_entry,
         )
         if self.show_extra:
             focused = self.focus_get()
@@ -630,6 +670,18 @@ class LoginForm(tk.Tk):
                 ).mainloop()
                 return
         self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
+
+        # Device name: control characters stripped; hard limit of 64 chars
+        # (received names are validated against the same limit).
+        raw_device_name = self.device_name_entry.get()
+        if len(raw_device_name.strip()) > DEVICE_NAME_MAX_CHARS:
+            CustomDialog(
+                "Invalid Input\nDevice Name must be at most 64 characters.",
+                msg_type="error",
+            ).mainloop()
+            return  # retry login
+        self.config.data["device_name"] = sanitize_device_name(raw_device_name)
+        self.config.data["share_device_name"] = self.share_device_name_var.get()
 
         # call login callback
         if self.on_login_callback:

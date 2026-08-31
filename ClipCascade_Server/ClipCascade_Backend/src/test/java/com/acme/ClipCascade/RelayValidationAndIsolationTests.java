@@ -9,6 +9,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -136,5 +139,71 @@ class RelayValidationAndIsolationTests {
                 eq("userA"),
                 eq(DESTINATION),
                 any(ClipboardData.class));
+    }
+
+    // --- T3: optional device metadata must pass through unchanged ---------
+
+    private Map<String, Object> deviceMetadata() {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("deviceId", "6f9619ff-8b86-d011-b42d-00cf4fc964ff");
+        metadata.put("deviceName", "Office PC");
+        metadata.put("clientPlatform", "Windows");
+        metadata.put("historyProtocolVersion", 1);
+        return metadata;
+    }
+
+    @Test
+    void deviceMetadataIsRelayedUnchanged() {
+        Map<String, Object> metadata = deviceMetadata();
+
+        controller.sendPrivateMessage(
+                principal("userA"),
+                new ClipboardData("dummy-payload", "text", metadata));
+
+        verify(simpMessagingTemplate).convertAndSendToUser(
+                eq("userA"),
+                eq(DESTINATION),
+                argThat(message -> message instanceof ClipboardData
+                        && metadata.equals(((ClipboardData) message).getMetadata())));
+    }
+
+    @Test
+    void deviceMetadataWithoutNameIsRelayedUnchanged() {
+        // share_device_name disabled: the name is absent, the opaque ID remains.
+        Map<String, Object> metadata = deviceMetadata();
+        metadata.remove("deviceName");
+
+        controller.sendPrivateMessage(
+                principal("userA"),
+                new ClipboardData("dummy-payload", "text", metadata));
+
+        verify(simpMessagingTemplate).convertAndSendToUser(
+                eq("userA"),
+                eq(DESTINATION),
+                argThat(message -> message instanceof ClipboardData
+                        && metadata.equals(((ClipboardData) message).getMetadata())));
+    }
+
+    @Test
+    void oversizedPayloadIsStillRejectedWhenMetadataIsPresent() {
+        long maxBytes = clipCascadeProperties.getMaxMessageSizeInBytes();
+        String oversizedDummyPayload = "a".repeat((int) maxBytes + 1);
+
+        assertThrows(MessagingException.class,
+                () -> controller.sendPrivateMessage(
+                        principal("userA"),
+                        new ClipboardData(oversizedDummyPayload, "text", deviceMetadata())));
+
+        verify(simpMessagingTemplate, never()).convertAndSendToUser(anyString(), anyString(), any());
+    }
+
+    @Test
+    void unknownTypeIsStillRejectedWhenMetadataIsPresent() {
+        assertThrows(MessagingException.class,
+                () -> controller.sendPrivateMessage(
+                        principal("userA"),
+                        new ClipboardData("dummy-payload", "executable", deviceMetadata())));
+
+        verify(simpMessagingTemplate, never()).convertAndSendToUser(anyString(), anyString(), any());
     }
 }
