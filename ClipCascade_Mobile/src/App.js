@@ -35,6 +35,27 @@ import {
 import StartForegroundService from './StartForegroundService';
 const { requireSecureServerUrl } = require('./transportSecurity');
 
+// A legacy 'password' in storage is a 128-char lowercase sha3-512 hex digest
+// (older builds stored the hashed form). The raw password cannot be
+// recovered from it.
+const looksLikeSha3Hex = value =>
+  typeof value === 'string' &&
+  value.length === 128 &&
+  /^[0-9a-f]+$/.test(value);
+
+// Adaptive sync-bridge poll: stay at 300ms while flags are changing (live
+// status updates remain snappy), relax up to 2s while idle so the native
+// bridge is not busy-polled at ~3.3 Hz forever.
+const POLL_MIN_MS = 300;
+const POLL_MAX_MS = 2000;
+const POLL_GROWTH = 1.5;
+const nextPollDelayMs = (currentDelayMs, flagsChanged) => {
+  if (flagsChanged) {
+    return POLL_MIN_MS;
+  }
+  return Math.min(POLL_MAX_MS, Math.round(currentDelayMs * POLL_GROWTH));
+};
+
 /*
  * These files are part of the ClipCascade project.
  *
@@ -82,6 +103,7 @@ export default function App() {
   const SERVER_MODE_URL = '/server-mode';
   const WEBSOCKET_ENDPOINT = '/clipsocket';
   const VALIDATE_URL = '/validate-session';
+  const WHOAMI_URL = '/whoami';
   const WEBSOCKET_ENDPOINT_P2P = '/p2psignaling';
   const STUN_URL = '/stun-url';
   const VERSION_URL =
@@ -94,8 +116,11 @@ export default function App() {
   const METADATA_URL =
     'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json';
 
-  // Request permissions for notifications
-  PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  // Request permissions for notifications (once on mount; a bare call in
+  // the component body is a side effect that fired on every render)
+  useEffect(() => {
+    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  }, []);
 
   const fetchTimeout = async (input, init, timeout_ms = FETCH_TIMEOUT) => {
     try {
@@ -261,7 +286,7 @@ export default function App() {
           await setDataInAsyncStorage('p2pStatusMessage', '');
           //validate session
           setLoadingPageMessage('Verifying Session...');
-          validResult = await validateSession(data_s);
+          const validResult = await validateSession(data_s);
           setEnableLoadingPage(false);
           if (validResult[0]) {
             //enable websocket page
@@ -429,7 +454,7 @@ export default function App() {
   };
 
   // Login
-  const login = async (data_s, password_s) => {
+  const login = async (data_s, password_s, rawPasswordForKey = null) => {
     try {
       data_s.server_url = requireSecureServerUrl(data_s.server_url);
 
@@ -492,13 +517,28 @@ export default function App() {
         body: formData.toString(),
       });
 
-      const loginResponseText = await loginResponse.text();
+      // 5. Check for login success by asking the server who we are: a
+      // semantic check (the authenticated /whoami endpoint echoes the
+      // username) instead of sniffing the followed login page's HTML for
+      // localized error text.
+      let loginSuccessful = false;
+      try {
+        const whoamiResponse = await fetchTimeout(
+          data_s.server_url + WHOAMI_URL,
+          {
+            method: 'GET',
+          },
+        );
+        if (whoamiResponse.ok) {
+          const whoami = JSON.parse(await whoamiResponse.text());
+          loginSuccessful = whoami && whoami.username === data_s.username;
+        }
+      } catch (_ignored) {
+        loginSuccessful = false;
+      }
 
-      // 5. Check for login success
-      if (
-        loginResponse.ok &&
-        !loginResponseText.toLowerCase().includes('bad credentials')
-      ) {
+      // 6. Proceed on a verified identity
+      if (loginSuccessful) {
         // get CSRF token
         data_s.csrf_token = await getCSRFToken(data_s);
 
@@ -574,20 +614,25 @@ export default function App() {
           );
         }
 
-        // Hash the password for encryption
+        // Hash the password for encryption. The PBKDF2 input is the
+        // EXPLICIT raw-password parameter, never closure state (which can be
+        // empty on saved-credential logins). A legacy stored hash cannot
+        // re-derive the key: keep the existing keystore key instead.
         if (data_s.cipher_enabled === 'true') {
-          hashResult = await hash(data_s, password);
-          data_s = hashResult[2];
-          if (!hashResult[0]) {
-            return [
-              false,
-              'Login successful but error generating hash: ' + hashResult[1],
-              data_s,
-            ];
+          if (rawPasswordForKey !== null) {
+            const hashResult = await hash(data_s, rawPasswordForKey);
+            data_s = hashResult[2];
+            if (!hashResult[0]) {
+              return [
+                false,
+                'Login successful but error generating hash: ' + hashResult[1],
+                data_s,
+              ];
+            }
+            await NativeBridgeModule.storeE2EKey(
+              hashResult[1].toString('base64'),
+            );
           }
-          await NativeBridgeModule.storeE2EKey(
-            hashResult[1].toString('base64'),
-          );
           data_s.hashed_password = '';
         }
 
@@ -676,6 +721,8 @@ export default function App() {
       'filesAvailableToDownload',
     ];
 
+    let previousJson = null;
+    let delayMs = POLL_MIN_MS;
     while (isMountedRef.current) {
       const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
       const latest = JSON.parse(json);
@@ -701,7 +748,13 @@ export default function App() {
           setEnableFilesDownloadButton(false);
         }
       }
-      await sleep(300);
+
+      // Any flag change snaps the cadence back to the minimum; an unchanged
+      // snapshot relaxes it, so the bridge is polled hard only while the
+      // state is actually moving.
+      delayMs = nextPollDelayMs(delayMs, json !== previousJson);
+      previousJson = json;
+      await sleep(delayMs);
     }
   }
 
@@ -713,7 +766,7 @@ export default function App() {
         setWsPageMessage('');
         setWsPageP2PMessage('');
         await clearFiles();
-        wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
+        const wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
@@ -787,11 +840,20 @@ export default function App() {
       await NativeBridgeModule.clearCookies();
 
       let password_s = null;
+      let rawPasswordForKey = null;
       if (pass === null) {
+        rawPasswordForKey = password; // the raw text from the input
         password_s = await stringToSHA3_512LowercaseHex(password);
-      } else {
-        // saved password
+      } else if (looksLikeSha3Hex(pass)) {
+        // legacy storage kept the sha3 hex: use it for the POST, but the raw
+        // password is unknowable, so the PBKDF2 key cannot be re-derived
+        // (the existing keystore key stays in place).
         password_s = pass;
+      } else {
+        // stored raw (current format): hash it for the POST, keep the raw
+        // for key derivation
+        rawPasswordForKey = pass;
+        password_s = await stringToSHA3_512LowercaseHex(pass);
       }
 
       // synchronous data instead of state hook data for instant updates
@@ -808,7 +870,7 @@ export default function App() {
       let loginResult;
       do {
         iteration++;
-        loginResult = await login(data_s, password_s);
+        loginResult = await login(data_s, password_s, rawPasswordForKey);
       } while (!loginResult[0] && iteration < MAX_LOGIN_AUTO_RETRY);
 
       data_s = loginResult[2];
@@ -823,9 +885,14 @@ export default function App() {
           NativeBridgeModule.stopWorkManager();
         }
 
-        // Save password in async storage
+        // Save password in async storage. The RAW password is stored so a
+        // saved-credential login can re-derive the PBKDF2 key (older builds
+        // stored the sha3 hex, which could not).
         if (data_s.save_password === 'true') {
-          await setDataInAsyncStorage('password', password_s);
+          await setDataInAsyncStorage(
+            'password',
+            rawPasswordForKey !== null ? rawPasswordForKey : password_s,
+          );
         }
         // Remove password from memory
         setPassword('');

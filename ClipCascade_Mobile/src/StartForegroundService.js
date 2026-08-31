@@ -400,7 +400,6 @@ module.exports = async (inputData = null) => {
               // Subscribe to a topic
               stompClient.subscribe(SUBSCRIPTION_DESTINATION, async message => {
                 try {
-                  await clearFiles();
                   toggle = false;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
@@ -430,6 +429,13 @@ module.exports = async (inputData = null) => {
 
                       // validate clipboard size
                       if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                        // Only retire a pending file-download offer when new
+                        // content genuinely replaces the clipboard. The old
+                        // top-of-handler clear wiped it for EVERY inbound
+                        // message, including duplicates the hash check just
+                        // ignored and payloads that failed size validation.
+                        await clearFiles();
+
                         // set clipboard content
                         if (type_ === 'text') {
                           Clipboard.setString(cb);
@@ -518,7 +524,6 @@ module.exports = async (inputData = null) => {
           // send clipboard content P2S
           sendClipBoardP2S = async (clipContent, type_ = 'text') => {
             try {
-              await clearFiles();
               if (stompClient && stompClient.connected && !toggle) {
                 if (
                   (type_ === 'image' && enable_image_sharing === 'false') ||
@@ -536,7 +541,7 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    temp = {};
+                    const temp = {};
                     const file_paths = clipContent
                       .split(',')
                       .filter(item => item.trim() !== '');
@@ -552,6 +557,13 @@ module.exports = async (inputData = null) => {
                   const hcb = await hashCB(clipContent);
                   if (await newCB(hcb)) {
                     previous_clipboard_content_hash = hcb;
+
+                    // A genuinely new local copy replaces whatever the
+                    // clipboard held: retire a pending remote file-download
+                    // offer now (previously this fired before the
+                    // sharing-disabled/size gates, wiping offers even when
+                    // nothing was ever sent).
+                    await clearFiles();
 
                     if (block_image_once) {
                       block_image_once = false;
@@ -866,7 +878,6 @@ module.exports = async (inputData = null) => {
           // send clipboard content P2P
           sendClipBoardP2P = async (clipContent, type_ = 'text') => {
             try {
-              await clearFiles();
               if (
                 (type_ === 'image' && enable_image_sharing === 'false') ||
                 (type_ === 'files' && enable_file_sharing === 'false')
@@ -881,7 +892,7 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  temp = {};
+                  const temp = {};
                   const file_paths = clipContent
                     .split(',')
                     .filter(item => item.trim() !== '');
@@ -897,6 +908,10 @@ module.exports = async (inputData = null) => {
                 const hcb = await hashCB(clipContent);
                 if (await newCB(hcb)) {
                   previous_clipboard_content_hash = hcb;
+
+                  // A genuinely new local copy replaces the clipboard:
+                  // retire a pending remote file-download offer now.
+                  await clearFiles();
 
                   if (block_image_once) {
                     block_image_once = false;
@@ -1117,8 +1132,6 @@ module.exports = async (inputData = null) => {
                 }
               }
 
-              await clearFiles();
-
               // decrypt
               if (cipher_enabled === 'true') {
                 try {
@@ -1138,6 +1151,11 @@ module.exports = async (inputData = null) => {
                 await resetReceivingFragments();
                 // validate clipboard size
                 if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                  // Only retire a pending file-download offer when new
+                  // content genuinely replaces the clipboard (see the P2S
+                  // inbound handler).
+                  await clearFiles();
+
                   // set clipboard content
                   if (type_ === 'text') {
                     Clipboard.setString(cb);
