@@ -14,9 +14,12 @@ from history import service as history_service
 from history import ipc as history_ipc
 from history.actions import HistoryActionExecutor
 from history_ui import launcher as history_launcher_mod
+from utils.notification_manager import NotificationManager
 
 if PLATFORM == WINDOWS:
     import ctypes
+    from clipboard import clipboard_monitor_win
+    from history import hotkey_win
 elif PLATFORM == MACOS or PLATFORM.startswith(LINUX):
     import fcntl
 
@@ -71,6 +74,7 @@ class Application:
             self.p2p_manager = P2PManager(self.config, history_sink=self.history_sink)
             self.cipher_manager = CipherManager(self.config)
             self._attach_history_actions()
+            self._setup_history_hotkey_callbacks()
         except Exception as e:
             CustomDialog(
                 f"An error occurred during application initialization: {e}",
@@ -164,14 +168,69 @@ class Application:
                 "be read-only, capture and sync continue"
             )
 
+    def _setup_history_hotkey_callbacks(self):
+        """Windows-only: install the hotkey lifecycle hooks on the clipboard
+        monitor before it can possibly start (the hidden message window is
+        created when a transport manager connects). Enablement itself happens
+        in run(), once the loaded config is available; see history/hotkey_win."""
+        if PLATFORM != WINDOWS:
+            return
+        try:
+            clipboard_monitor_win.set_hotkey_callbacks(
+                on_window_ready=hotkey_win.on_window_ready,
+                on_window_closing=hotkey_win.on_window_closing,
+                on_hotkey=hotkey_win.on_hotkey,
+            )
+        except Exception:
+            logging.exception(
+                "Failed to prepare the history hotkey; the tray path still works"
+            )
+
+    def _setup_history_hotkey(self):
+        """Turn the (off-by-default) Ctrl+Alt+V history shortcut on for this
+        session when the setting says so. Failure only costs the hotkey."""
+        if PLATFORM != WINDOWS:
+            return
+        try:
+            hotkey_win.enable(
+                self.config,
+                on_trigger=self._open_history_window,
+                on_notice=self._notify_history_notice,
+            )
+        except Exception:
+            logging.exception(
+                "Failed to enable the history hotkey; the tray path still works"
+            )
+
+    def _open_history_window(self):
+        """Open or focus the single history window (tray menu, tray
+        double-click and hotkey all land here). Every failure degrades to a
+        log line so a broken history can never break the tray or sync."""
+        launcher = self.history_launcher
+        if launcher is None:
+            logging.info(
+                "History window unavailable: history is not active in this session"
+            )
+            return
+        try:
+            outcome = launcher.open_or_focus()
+            logging.info("History window request outcome: %s", outcome)
+        except Exception:
+            logging.exception("Failed to open the clipboard history window")
+
+    def _notify_history_notice(self, message):
+        """One-shot user notices for the history feature, respecting the
+        user's notification preference like every other notice."""
+        try:
+            NotificationManager(self.config).notify(APP_NAME, message, timeout=10)
+        except Exception:
+            logging.exception("Failed to show a history notice")
+
     def setup_logging(self):
-        LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-        logging.basicConfig(
-            level=LOG_LEVEL,
-            format=LOG_FORMAT,
-            filename=self.log_file_path,
-            filemode="w",
-        )
+        from utils.error_logging import install_excepthooks, setup_rotating_logging
+
+        setup_rotating_logging(self.log_file_path, level=LOG_LEVEL)
+        install_excepthooks()
 
     def ensure_single_instance(self):
         if PLATFORM == WINDOWS:
@@ -371,8 +430,8 @@ class Application:
 
     def run(self):
         try:
-            self.banner()
             self.setup_logging()
+            self.banner()
             self.ensure_single_instance()
             self.config.load()
             ensure_device_identity(self.config)
@@ -390,8 +449,14 @@ class Application:
                 donation_url=donation_url,
                 ws_interface=self._get_ws_manager(),
                 config=self.config,
+                **(
+                    {"on_open_history_callback": self._open_history_window}
+                    if PLATFORM == WINDOWS
+                    else {}
+                ),
             )
             self._get_ws_manager().set_tray_ref(sys_tray)
+            self._setup_history_hotkey()
             sys_tray.run()
         except Exception as e:
             msg = f"An unexpected error has occurred: {e}"
@@ -401,6 +466,11 @@ class Application:
             ).mainloop()
         finally:
             self._get_ws_manager().disconnect()
+            if PLATFORM == WINDOWS:
+                try:
+                    hotkey_win.shutdown()
+                except Exception:
+                    logging.exception("Failed to shut down the history hotkey")
             if self.history_launcher is not None:
                 try:
                     self.history_launcher.shutdown_ipc()

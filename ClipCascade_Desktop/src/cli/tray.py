@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import threading
@@ -78,7 +79,13 @@ class TaskbarPanel:
             if choice in self.numbered_menu:
                 fun = self.numbered_menu[choice][1]
                 if fun is not None:
-                    fun()
+                    try:
+                        fun()
+                    except Exception:
+                        logging.exception(
+                            "Menu action %s (%s) failed", choice, fun.__name__
+                        )
+                        Echo("That action failed. Check the log for details.")
             else:
                 Echo("Invalid choice.")
 

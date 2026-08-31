@@ -28,6 +28,7 @@ class TaskbarPanel:
         donation_url: str = None,
         ws_interface=None,  # type= interfaces.ws_interface.WSInterface
         config: Config = None,
+        on_open_history_callback: callable = None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
@@ -37,6 +38,7 @@ class TaskbarPanel:
         self.donation_url = donation_url
         self.ws_interface = ws_interface
         self.config = config
+        self.on_open_history_callback = on_open_history_callback
 
         self.is_disconnecting = False
         self.disconnecting_items = None
@@ -70,6 +72,9 @@ class TaskbarPanel:
         self.update_stats()  # Start the stats update thread
 
     def run(self):
+        from utils.error_logging import install_tk_report_hook
+
+        install_tk_report_hook(self.root)
         self.icon.run()
 
     def _create_clipboard_base_image(self):
@@ -167,6 +172,19 @@ class TaskbarPanel:
                 )
             else:
                 menu_items.insert(0, item("⛓️‍💥 Disconnect", self._on_disconnect))
+
+        # Add open history option (right after the connect/disconnect entry).
+        # Double-click opens history, except while a pending-file download is
+        # armed: the download shortcut keeps the default action then.
+        if self.on_open_history_callback is not None:
+            menu_items.insert(
+                1,
+                item(
+                    "🕘 Open history",
+                    self._on_open_history,
+                    default=not self.is_file_download_enabled,
+                ),
+            )
 
         # Add update option (before the last 3 items)
         if self.new_version_available is not None and self.new_version_available[0]:
@@ -273,6 +291,17 @@ class TaskbarPanel:
         self.ws_interface.is_auto_reconnecting = False
         self.is_connected = False
         self.update_menu()
+
+    def _on_open_history(self, icon, item):
+        """Open/focus the history window. Any failure must cost one log line,
+        never the tray."""
+        if self.on_open_history_callback is None:
+            logging.debug("History window is not available in this session.")
+            return
+        try:
+            self.on_open_history_callback()
+        except Exception as e:
+            logging.error(f"Failed to open the clipboard history window: {e}")
 
     def _open_homepage(self, icon, item):
         TaskbarPanel.open_webbrowser(self.config.data["server_url"])
