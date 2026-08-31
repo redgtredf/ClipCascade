@@ -132,6 +132,10 @@ def _make_stomp(cfg, sink):
 
 def _make_p2p(cfg, sink):
     p2p = P2PManager(cfg, history_sink=sink)
+    # Delivery is normally offloaded to the P2P delivery worker; these tests
+    # assert synchronously right after _receive, so run it inline. The
+    # asynchronous worker itself is covered by test_clipboard_hardening.py.
+    p2p._enqueue_delivery = lambda job: job()
     _intercept_paste(p2p.clipboard_manager)
     return p2p
 

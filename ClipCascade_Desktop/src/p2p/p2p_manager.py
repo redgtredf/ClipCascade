@@ -1,5 +1,6 @@
 import json
 import logging
+import queue
 import time
 import websocket
 import asyncio
@@ -84,6 +85,29 @@ class P2PManager(WSInterface):
             target=self.loop.run_forever, name="P2PManagerEventLoopThread", daemon=True
         )
         self.loop_thread.start()
+
+        # Clipboard delivery (paste + history capture) is blocking OS work;
+        # running it on the asyncio loop would starve signaling, ICE and the
+        # data-channel heartbeats for as long as the clipboard is contended.
+        # One ordered worker keeps deliveries sequential like the loop did.
+        self._delivery_queue: "queue.Queue" = queue.Queue()
+        self._delivery_thread = Thread(
+            target=self._delivery_worker, name="P2PDeliveryWorker", daemon=True
+        )
+        self._delivery_thread.start()
+
+    def _delivery_worker(self):
+        while True:
+            job = self._delivery_queue.get()
+            if job is None:
+                return
+            try:
+                job()
+            except Exception:
+                logging.exception("P2P clipboard delivery failed")
+
+    def _enqueue_delivery(self, job):
+        self._delivery_queue.put(job)
 
     def schedule_task(self, coro):
         """Submit an async function to the manager's event loop thread."""
@@ -342,7 +366,7 @@ class P2PManager(WSInterface):
         and resets P2P tracking variables.
         """
         try:
-            self.clipboard_manager.previous_clipboard_hash = 0
+            self.clipboard_manager.reset_previous_clipboard_hash()
             self.disconnected = True
             self.first_conn_lost = True
 
@@ -724,7 +748,21 @@ class P2PManager(WSInterface):
         self.sending_fragment_stats = None
 
     async def _send(self, payload: str, payload_type: str = "text"):
+        previous_hash = None
         try:
+            # Offline guard: with no open data channel there is nothing to
+            # send to. Returning BEFORE the dedupe-hash check keeps the hash
+            # un-burned, so the same content still syncs once a peer
+            # (re)connects instead of being silently swallowed.
+            open_channels = [
+                (peer_id, channel)
+                for peer_id, channel in self.data_channels.items()
+                if channel.readyState == "open"
+            ]
+            if not open_channels:
+                return
+
+            previous_hash = self.clipboard_manager.previous_clipboard_hash
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_sending_fragment_id()
                 self.reset_receiving_fragments()
@@ -767,9 +805,8 @@ class P2PManager(WSInterface):
                     metadata["index"] += 1
 
                     # Send to all open DataChannels
-                    for peer_id, channel in self.data_channels.items():
-                        if channel.readyState == "open":
-                            channel.send(body)
+                    for peer_id, channel in open_channels:
+                        channel.send(body)
 
                     if metadata["isFragmented"]:
                         self.sending_fragment_stats = (
@@ -779,6 +816,9 @@ class P2PManager(WSInterface):
                     self.reset_sending_fragment_id()
 
         except Exception as e:
+            # A failed send must not leave the dedupe hash burned.
+            if previous_hash is not None:
+                self.clipboard_manager.restore_previous_clipboard_hash(previous_hash)
             logging.error(f"Failed to send data: {e}")
 
     def reset_receiving_fragments(self):
@@ -886,22 +926,42 @@ class P2PManager(WSInterface):
                     self.receiving_fragments[metadata["id"]][fragment_index] = payload
                     return
 
+            # The decrypt (CPU) and paste (blocking OS clipboard I/O) must
+            # not run on the asyncio loop: signaling, ICE and the data-channel
+            # heartbeats would stall while the clipboard is contended or a
+            # large payload is decrypted. Fragment bookkeeping above stays on
+            # the loop; only the delivery is offloaded, preserving order via
+            # the single delivery worker.
+            self._enqueue_delivery(
+                lambda p=payload, t=payload_type, d=device_for_delivery: self._deliver(p, t, d)
+            )
+
+        except json.decoder.JSONDecodeError:
+            logging.error("If cipher is enabled, please make sure it is enabled on all devices")
+        except Exception as e:
+            logging.error(f"Failed to receive data: {e}")
+
+    def _deliver(self, payload: str, payload_type: str, device_metadata) -> None:
+        """Runs on the delivery worker thread: decrypt, dedupe-check, paste
+        and history capture happen here, with the dedupe hash rolled back
+        when the paste fails so nothing is silently lost."""
+        try:
             if self.config.data["cipher_enabled"]:
                 payload = self.cipher_manager.decrypt(
                     **CipherManager.decode_from_json_string(payload)
                 )
-
+            previous_hash = self.clipboard_manager.previous_clipboard_hash
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_receiving_fragments()
-                device_id, device_name = extract_remote_identity(device_for_delivery)
-                self.clipboard_manager.base64_to_clipboard(
+                device_id, device_name = extract_remote_identity(device_metadata)
+                delivered = self.clipboard_manager.base64_to_clipboard(
                     base64_string=payload,
                     type_=payload_type,
                     source_device_id=device_id,
                     source_device_name=device_name,
                 )
-        except json.decoder.JSONDecodeError:
-            logging.error("If cipher is enabled, please make sure it is enabled on all devices")
+                if not delivered:
+                    self.clipboard_manager.restore_previous_clipboard_hash(previous_hash)
         except Exception as e:
             logging.error(f"Failed to receive data: {e}")
 

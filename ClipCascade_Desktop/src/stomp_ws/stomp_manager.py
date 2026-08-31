@@ -169,6 +169,7 @@ class STOMPManager(WSInterface):
     def send(self, payload: str, payload_type: str = "text"):
         try:
             if self.is_connected:
+                previous_hash = self.clipboard_manager.previous_clipboard_hash
                 if self.clipboard_manager.has_clipboard_changed(payload):
                     if self.config.data["cipher_enabled"]:
                         payload = CipherManager.encode_to_json_string(
@@ -181,7 +182,14 @@ class STOMPManager(WSInterface):
                     if device_metadata is not None:
                         body_dict["metadata"] = device_metadata
                     body = json.dumps(body_dict)
-                    self.client.send(destination=SEND_DESTINATION, body=body)
+                    try:
+                        self.client.send(destination=SEND_DESTINATION, body=body)
+                    except Exception:
+                        # The dedupe hash was burned by the changed-check
+                        # above; un-burn it so the same content is re-sent
+                        # on the next copy/attempt instead of being lost.
+                        self.clipboard_manager.restore_previous_clipboard_hash(previous_hash)
+                        raise
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
 
@@ -199,13 +207,18 @@ class STOMPManager(WSInterface):
                         **CipherManager.decode_from_json_string(payload)
                     )
 
+                previous_hash = self.clipboard_manager.previous_clipboard_hash
                 if self.clipboard_manager.has_clipboard_changed(payload):
-                    self.clipboard_manager.base64_to_clipboard(
+                    delivered = self.clipboard_manager.base64_to_clipboard(
                         base64_string=payload,
                         type_=payload_type,
                         source_device_id=device_id,
                         source_device_name=device_name,
                     )
+                    if not delivered:
+                        # Paste failed (e.g. clipboard busy): un-burn the
+                        # dedupe hash so a retry of the same content works.
+                        self.clipboard_manager.restore_previous_clipboard_hash(previous_hash)
         except json.decoder.JSONDecodeError:
             logging.error(
                 "If cipher is enabled, please make sure it is enabled on all devices"
@@ -245,7 +258,7 @@ class STOMPManager(WSInterface):
 
     def disconnect(self):
         try:
-            self.clipboard_manager.previous_clipboard_hash = 0
+            self.clipboard_manager.reset_previous_clipboard_hash()
             self.disconnected = True
             self.first_conn_lost = True
             self._reset_reconnect_state()

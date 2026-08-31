@@ -31,9 +31,14 @@ def _get_clipboard_content(enable_image_monitoring=False, enable_file_monitoring
     """
     Get the content of the clipboard.
 
+    Format priority when several formats are present (e.g. a Word/browser
+    copy renders both text and bitmap): text wins, then files, then image.
+    Preferring the image silently discarded the text of every composite
+    copy; the text is the intentional payload in those copies.
+
     Image:
         PNG -> PngImagePlugin.PngImageFile
-        DIB -> BmpImagePlugin.DibImageFile
+        DIB -> BmpImagePlugin.BibImageFile
         PNG, DIB, JPG, etc. -> [file_path1, file_path2, ...]
 
     Text:
@@ -47,31 +52,33 @@ def _get_clipboard_content(enable_image_monitoring=False, enable_file_monitoring
     clipboard_type = None
     clipboard_content = None
 
-    if enable_image_monitoring and win32clipboard.IsClipboardFormatAvailable(
-        win32con.CF_BITMAP
+    win32clipboard.OpenClipboard()
+    try:
+        if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+            text = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
+            clipboard_type = "text"
+            clipboard_content = text
+        elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_TEXT):
+            text_bytes = win32clipboard.GetClipboardData(win32con.CF_TEXT)
+            text = text_bytes.decode()
+            clipboard_type = "text"
+            clipboard_content = text
+        elif enable_file_monitoring and win32clipboard.IsClipboardFormatAvailable(
+            win32con.CF_HDROP
+        ):
+            files = win32clipboard.GetClipboardData(win32con.CF_HDROP)
+            clipboard_type = "files"
+            clipboard_content = files
+    finally:
+        win32clipboard.CloseClipboard()
+
+    if (
+        clipboard_type is None
+        and enable_image_monitoring
+        and win32clipboard.IsClipboardFormatAvailable(win32con.CF_BITMAP)
     ):
         clipboard_type = "image"
         clipboard_content = ImageGrab.grabclipboard()
-    else:
-        win32clipboard.OpenClipboard()
-        try:
-            if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
-                text = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
-                clipboard_type = "text"
-                clipboard_content = text
-            elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_TEXT):
-                text_bytes = win32clipboard.GetClipboardData(win32con.CF_TEXT)
-                text = text_bytes.decode()
-                clipboard_type = "text"
-                clipboard_content = text
-            elif enable_file_monitoring and win32clipboard.IsClipboardFormatAvailable(
-                win32con.CF_HDROP
-            ):
-                files = win32clipboard.GetClipboardData(win32con.CF_HDROP)
-                clipboard_type = "files"
-                clipboard_content = files
-        finally:
-            win32clipboard.CloseClipboard()
 
     return (clipboard_type, clipboard_content)
 

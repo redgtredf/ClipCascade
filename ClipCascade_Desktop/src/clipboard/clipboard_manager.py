@@ -90,6 +90,11 @@ class ClipboardManager:
         # Serializes the multi-thread capture paths (clipboard monitor thread
         # + ws/p2p receiver threads) that mutate/iterate the cache above.
         self._history_dedup_lock = threading.Lock()
+        # Compare-and-set guard for `previous_clipboard_hash`: the clipboard
+        # monitor thread, the STOMP reader thread, the P2P delivery worker and
+        # the P2P asyncio loop all read/write it; an unlocked check-then-set
+        # lets two threads both observe "changed" for the same content.
+        self._clipboard_hash_lock = threading.Lock()
 
         if PLATFORM.startswith(LINUX) and XMODE:
             self.is_x_clipboard_owner = clipboard_monitor.is_x_clipboard_owner()
@@ -177,10 +182,21 @@ class ClipboardManager:
         - True if the clipboard content has changed, False otherwise.
         """
         current_clipboard_hash = ClipboardManager.hash_clipboard(payload)
-        if current_clipboard_hash != self.previous_clipboard_hash:
-            self.previous_clipboard_hash = current_clipboard_hash
-            return True
-        return False
+        with self._clipboard_hash_lock:
+            if current_clipboard_hash != self.previous_clipboard_hash:
+                self.previous_clipboard_hash = current_clipboard_hash
+                return True
+            return False
+
+    def restore_previous_clipboard_hash(self, previous_hash) -> None:
+        """Undo a hash burn when the send/paste that consumed it failed, so
+        the same content is still delivered on the next attempt."""
+        with self._clipboard_hash_lock:
+            self.previous_clipboard_hash = previous_hash
+
+    def reset_previous_clipboard_hash(self) -> None:
+        """Force the next observed content to count as changed."""
+        self.restore_previous_clipboard_hash(0)
 
     def on_copy(self, copy_callback):
         clipboard_monitor.on_update(
@@ -259,7 +275,10 @@ class ClipboardManager:
         type_: str = "text",
         source_device_id: Optional[str] = None,
         source_device_name: Optional[str] = None,
-    ):
+    ) -> bool:
+        """Deliver a remote payload to the local clipboard. Returns True when
+        the delivery path completed; False lets the caller roll back its
+        dedupe hash so the payload is not silently lost."""
         try:
             if type_ == "text":
                 txt = base64_string
@@ -270,6 +289,7 @@ class ClipboardManager:
                             "text", txt, source_device_id, source_device_name
                         )
                     )
+                    return True
             elif type_ == "image":
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
                 if self.is_clipboard_size_within_limit(img, type_):
@@ -282,6 +302,7 @@ class ClipboardManager:
                             source_device_name,
                         )
                     )
+                    return True
             elif type_ == "files":
                 file_objects = ClipboardManager.convert_base64_to_files(
                     base64_json=base64_string
@@ -293,8 +314,10 @@ class ClipboardManager:
                             file_objects, source_device_id, source_device_name
                         )
                     )
+                    return True
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
+        return False
 
     # --- history capture (T2) -------------------------------------------
     #
