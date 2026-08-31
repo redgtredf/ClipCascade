@@ -1,18 +1,21 @@
-"""Read-only data orchestration for the history window.
+"""Read-only data orchestration plus action dispatch for the history window.
 
 `ReadOnlyHistoryGateway` is the *only* way the UI touches the IPC channel.
-It exposes exactly three actions -- ping, query, get_detail -- so no pin /
-delete / copy / download / retention mutation can even be expressed from the
-UI layer, let alone dispatched. (`history_ui.client.HistoryIpcClient` does
-carry the raw execute_command plumbing from T4; this facade never forwards
-to it, and tests assert the UI sources never reference those actions.)
+Its allow-list below is the complete mutation surface: history commands
+(pin/unpin/delete/clear/mark-downloaded), retention preview/apply and the
+main-process action endpoints (copy again, downloads, folder open, clipboard
+clear) that T6 routes through the authenticated pipe. Raw commands can only
+be expressed through `execute_command`, whose accepted names the IPC server
+validates server-side. (`history_ui.client.HistoryIpcClient` carries the raw
+plumbing from T4; nothing outside this facade may reach it, and tests assert
+the non-controller UI sources never do.)
 
 `HistoryController` owns paging, in-memory search (150 ms debounce over the
 decrypted bounded summaries the server already returned -- there is no
-persistent plaintext index), ordering, live IPC events and announcements.
-All requests run on a QThreadPool so the Qt event loop (and therefore
-painting and keyboard handling) never blocks on the pipe; tests can flip the
-controller into synchronous mode for deterministic assertions.
+persistent plaintext index), ordering, live IPC events, announcements and
+action dispatch on a QThreadPool (the Qt event loop -- painting and keyboard
+handling -- never blocks on the pipe). Tests can flip the controller into
+synchronous mode for deterministic assertions.
 """
 
 import re
@@ -27,7 +30,20 @@ PAGE_SIZE = 100
 MAX_LOADED_ENTRIES = ipc_protocol.MAX_PAGE_SIZE
 SEARCH_DEBOUNCE_MS = 150
 
-ALLOWED_ACTIONS = ("ping", "query", "get_detail")
+ALLOWED_ACTIONS = (
+    "ping",
+    "query",
+    "get_detail",
+    "execute_command",
+    "preview_retention",
+    "apply_retention",
+    "copy_again",
+    "download_files",
+    "save_image",
+    "open_folder",
+    "copy_file_paths",
+    "clear_windows_clipboard",
+)
 
 _URL_IN_TEXT_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
@@ -56,6 +72,33 @@ class ReadOnlyHistoryGateway:
 
     def get_detail(self, entry_id):
         return self._client.get_detail(entry_id)
+
+    def execute_command(self, command, **fields):
+        return self._client.execute_command(command, **fields)
+
+    def preview_retention(self, policy=None):
+        return self._client.preview_retention(policy)
+
+    def apply_retention(self, policy=None):
+        return self._client.apply_retention(policy)
+
+    def copy_again(self, entry_id):
+        return self._client.copy_again(entry_id)
+
+    def download_files(self, entry_id, target_directory, filenames=None):
+        return self._client.download_files(entry_id, target_directory, filenames)
+
+    def save_image(self, entry_id, target_path):
+        return self._client.save_image(entry_id, target_path)
+
+    def open_folder(self, entry_id):
+        return self._client.open_folder(entry_id)
+
+    def copy_file_paths(self, entry_id):
+        return self._client.copy_file_paths(entry_id)
+
+    def clear_windows_clipboard(self):
+        return self._client.clear_windows_clipboard()
 
 
 class _TaskSignalEmitter(QObject):
@@ -98,6 +141,8 @@ class HistoryController(QObject):
     detail_loaded = Signal(object)
     detail_failed = Signal(str, str)
     announced = Signal(str)
+    action_completed = Signal(str, object)
+    action_failed = Signal(str, str)
 
     def __init__(self, gateway, parent=None, synchronous=False, search_debounce_ms=SEARCH_DEBOUNCE_MS):
         super().__init__(parent)
@@ -199,6 +244,22 @@ class HistoryController(QObject):
         self._pending_detail_id = entry_id
         self.detail_loading.emit(entry_id)
         self._enqueue_detail(entry_id, self._generation)
+
+    def execute_action(self, name, args=None):
+        """Run a gateway action off the event loop. Results arrive via
+        action_completed/action_failed; state-changing successes also arrive
+        as IPC entry/retention events through handle_event."""
+        if name not in ALLOWED_ACTIONS or name in ("ping", "query", "get_detail"):
+            self.action_failed.emit(name, f"unsupported-action:{name}")
+            return
+
+        gateway = self._gateway
+
+        def job():
+            method = getattr(gateway, name)
+            return method(**(args or {}))
+
+        self._submit(f"action:{name}", self._generation, job)
 
     def handle_event(self, name, data, gap=False):
         """IPC events. Deletions are applied in place; additions and updates
@@ -325,6 +386,8 @@ class HistoryController(QObject):
             self._on_refresh(result, announce=boxed.get("announce", False))
         elif task_id == "detail":
             self._on_detail(boxed.get("entry_id"), result)
+        elif task_id.startswith("action:"):
+            self.action_completed.emit(task_id.split(":", 1)[1], result)
 
     def _on_task_failed(self, task_id, message):
         if task_id in ("query", "refresh"):
@@ -337,6 +400,8 @@ class HistoryController(QObject):
             entry_id = self._pending_detail_id or ""
             self._pending_detail_id = None
             self.detail_failed.emit(entry_id, message)
+        elif task_id.startswith("action:"):
+            self.action_failed.emit(task_id.split(":", 1)[1], message)
 
     def _on_page(self, page, append):
         if not isinstance(page, dict):

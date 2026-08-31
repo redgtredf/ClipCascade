@@ -15,6 +15,7 @@ import dataclasses
 import io
 import json
 import logging
+import os
 import queue
 import re
 import sqlite3
@@ -459,7 +460,34 @@ class HistoryService:
             self._store.set_setting(_RECORDING_ENABLED_KEY, "1" if command.enabled else "0")
             return models.CommandResult(ok=True)
 
+        if isinstance(command, models.MarkEntryDownloadedCommand):
+            return self._mark_entry_downloaded(command)
+
         return models.CommandResult(ok=False, error=f"Unsupported command: {command!r}")
+
+    def _mark_entry_downloaded(self, command: models.MarkEntryDownloadedCommand) -> models.CommandResult:
+        now = self._clock.now_utc()
+        row = self._store.get_entry(command.entry_id)
+        if row is None:
+            return models.CommandResult(ok=False, entry_id=command.entry_id, error="not-found")
+        if row["payload_type"] != "files":
+            return models.CommandResult(ok=False, entry_id=command.entry_id, error="not-a-file-batch")
+        if row["file_state"] != "ready":
+            return models.CommandResult(
+                ok=False, entry_id=command.entry_id, error=f"invalid-state:{row['file_state']}"
+            )
+        directory = os.path.normpath(command.downloaded_directory)
+        if not os.path.isdir(directory):
+            return models.CommandResult(ok=False, entry_id=command.entry_id, error="directory-missing")
+        aad = self._aad_for_row(row)
+        encrypted_dir = crypto.encrypt_field(self._key, directory.encode("utf-8"), aad)
+        self._store.set_file_state(
+            command.entry_id,
+            "downloaded",
+            now,
+            downloaded_directory_encrypted=encrypted_dir,
+        )
+        return models.CommandResult(ok=True, entry_id=command.entry_id, affected_count=1)
 
     def _delete_entries(self, entry_ids) -> models.CommandResult:
         if not entry_ids:

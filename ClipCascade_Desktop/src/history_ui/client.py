@@ -349,6 +349,38 @@ class HistoryIpcClient:
         args.update(fields)
         return self._request("execute_command", args, timeout_s=timeout_s)
 
+    def copy_again(self, entry_id, timeout_s=DEFAULT_REQUEST_TIMEOUT_S):
+        return self._request("copy_again", {"entry_id": entry_id}, timeout_s=timeout_s)
+
+    def download_files(
+        self, entry_id, target_directory, filenames=None, timeout_s=DEFAULT_REQUEST_TIMEOUT_S
+    ):
+        return self._request(
+            "download_files",
+            {
+                "entry_id": entry_id,
+                "target_directory": target_directory,
+                "filenames": list(filenames) if filenames is not None else None,
+            },
+            timeout_s=timeout_s,
+        )
+
+    def save_image(self, entry_id, target_path, timeout_s=DEFAULT_REQUEST_TIMEOUT_S):
+        return self._request(
+            "save_image",
+            {"entry_id": entry_id, "target_path": target_path},
+            timeout_s=timeout_s,
+        )
+
+    def open_folder(self, entry_id, timeout_s=DEFAULT_REQUEST_TIMEOUT_S):
+        return self._request("open_folder", {"entry_id": entry_id}, timeout_s=timeout_s)
+
+    def copy_file_paths(self, entry_id, timeout_s=DEFAULT_REQUEST_TIMEOUT_S):
+        return self._request("copy_file_paths", {"entry_id": entry_id}, timeout_s=timeout_s)
+
+    def clear_windows_clipboard(self, timeout_s=DEFAULT_REQUEST_TIMEOUT_S):
+        return self._request("clear_windows_clipboard", {}, timeout_s=timeout_s)
+
     # --- incoming (reader thread) ------------------------------------------
 
     def _fail_all_pending(self, error):

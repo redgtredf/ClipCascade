@@ -56,6 +56,30 @@ def test_local_text_capture_creates_one_local_entry_and_still_sends_once(tmp_con
     assert event.transport == "local"
 
 
+def test_copy_again_suppression_swallows_one_send_then_resumes(tmp_config):
+    """The T6 copy-again contract at the real manager seam: with the
+    suppression armed (flag + token), the monitor-triggered local path is
+    swallowed exactly once — no resend callback, no history record — and
+    normal operation resumes afterwards."""
+    sink = FakeHistorySink()
+    manager = _make_manager(tmp_config, sink, "p2s")
+
+    manager.suppress_next_local_send = True
+    manager.history_origin_suppress_token = "history-copy-again:entry-1"
+    manager.previous_clipboard_hash = ClipboardManager.hash_clipboard("retry this")
+
+    sent = []
+    manager.clipboard_to_base64(lambda c, t: sent.append((c, t)), "retry this", "text")
+    assert sent == []
+    assert len(sink.events) == 0
+    assert manager.suppress_next_local_send is False
+    assert manager.history_origin_suppress_token is None
+
+    manager.clipboard_to_base64(lambda c, t: sent.append((c, t)), "a fresh copy", "text")
+    assert sent == [("a fresh copy", "text")]
+    assert len(sink.events) == 1
+
+
 def test_local_image_capture_records_raw_bytes_not_base64(tmp_config):
     sink = FakeHistorySink()
     manager = _make_manager(tmp_config, sink)

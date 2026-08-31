@@ -166,6 +166,14 @@ class SetRecordingEnabledCommand:
     enabled: bool
 
 
+@dataclass(frozen=True)
+class MarkEntryDownloadedCommand:
+    """ready -> downloaded transition after a real on-disk write."""
+
+    entry_id: HistoryEntryId
+    downloaded_directory: str
+
+
 Command = Union[
     PinEntryCommand,
     UnpinEntryCommand,
@@ -174,6 +182,7 @@ Command = Union[
     ClearAllCommand,
     ExpireTransfersNowCommand,
     SetRecordingEnabledCommand,
+    MarkEntryDownloadedCommand,
 ]
 
 

@@ -36,6 +36,7 @@ import time
 import uuid
 
 from history import crypto, ipc_protocol, models
+from history.actions import HistoryActionError
 
 WINDOWS = os.name == "nt"
 
@@ -168,6 +169,15 @@ def _write_all(handle, data):
 def _require_str(args, key):
     value = args.get(key)
     if not isinstance(value, str) or not value:
+        raise _RequestError(f"invalid-{key}")
+    return value
+
+
+def _optional_str_list(args, key):
+    value = args.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise _RequestError(f"invalid-{key}")
     return value
 
@@ -349,6 +359,11 @@ class HistoryIpcServer:
     def __init__(self, service=None):
         _require_windows()
         self._service = service
+        # Attached by the application once the clipboard managers exist
+        # (they are constructed after the history stack). Absent executor
+        # => action requests fail with "actions-unavailable", queries and
+        # commands keep working.
+        self.action_executor = None
         self.pipe_name = new_pipe_name()
         self._pipe_path = r"\\.\pipe\%s" % self.pipe_name
         self._security_attributes = _build_pipe_security_attributes()
@@ -506,6 +521,15 @@ class HistoryIpcServer:
             return self._handle_apply_retention(args)
         if action == "execute_command":
             return self._handle_execute_command(args)
+        if action in (
+            "copy_again",
+            "download_files",
+            "save_image",
+            "open_folder",
+            "copy_file_paths",
+            "clear_windows_clipboard",
+        ):
+            return self._handle_action(action, args)
         raise _RequestError("unknown-action")
 
     def _handle_query(self, args):
@@ -582,6 +606,10 @@ class HistoryIpcServer:
         "set_recording_enabled": lambda args: models.SetRecordingEnabledCommand(
             enabled=bool(args.get("enabled"))
         ),
+        "mark_entry_downloaded": lambda args: models.MarkEntryDownloadedCommand(
+            entry_id=_require_str(args, "entry_id"),
+            downloaded_directory=_require_str(args, "downloaded_directory"),
+        ),
     }
 
     def _handle_execute_command(self, args):
@@ -600,8 +628,42 @@ class HistoryIpcServer:
             self._emit_command_event(name, command)
         return dataclasses.asdict(result)
 
+    _ACTION_ARG_VALIDATORS = {
+        "copy_again": lambda args: {"entry_id": _require_str(args, "entry_id")},
+        "download_files": lambda args: {
+            "entry_id": _require_str(args, "entry_id"),
+            "target_directory": _require_str(args, "target_directory"),
+            "filenames": _optional_str_list(args, "filenames"),
+        },
+        "save_image": lambda args: {
+            "entry_id": _require_str(args, "entry_id"),
+            "target_path": _require_str(args, "target_path"),
+        },
+        "open_folder": lambda args: {"entry_id": _require_str(args, "entry_id")},
+        "copy_file_paths": lambda args: {"entry_id": _require_str(args, "entry_id")},
+        "clear_windows_clipboard": lambda args: {},
+    }
+
+    def _handle_action(self, action, args):
+        executor = self.action_executor
+        if executor is None:
+            raise _RequestError("actions-unavailable")
+        try:
+            kwargs = self._ACTION_ARG_VALIDATORS[action](args)
+        except _RequestError:
+            raise
+        except Exception as error:
+            raise _RequestError("invalid-action-args") from error
+        try:
+            result = getattr(executor, action)(**kwargs)
+        except HistoryActionError as error:
+            raise _RequestError(error.code) from error
+        if action in ("download_files", "save_image") and result.get("ok"):
+            self.notify_entry_updated(result.get("entry_id"))
+        return result
+
     def _emit_command_event(self, name, command):
-        if name in ("pin_entry", "unpin_entry"):
+        if name in ("pin_entry", "unpin_entry", "mark_entry_downloaded"):
             self.notify_entry_updated(command.entry_id)
         elif name == "delete_entry":
             self.notify_entry_deleted(command.entry_id)

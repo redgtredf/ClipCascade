@@ -35,11 +35,7 @@ UI_SOURCES = [
     Path("src/history_ui/main.py"),
 ]
 
-FORBIDDEN_METHODS = {
-    "execute_command",
-    "preview_retention",
-    "apply_retention",
-}
+FORBIDDEN_METHODS = FORBIDDEN = None  # superseded by ALLOWED_IPC_METHODS guards
 
 
 def row(index, payload_type="text", direction="local", pinned=False, **overrides):
@@ -71,6 +67,7 @@ class FakeGateway:
         self.detail = detail or {}
         self.queries = []
         self.details = []
+        self.actions = []
 
     def ping(self):
         return True
@@ -93,6 +90,42 @@ class FakeGateway:
         self.details.append(entry_id)
         return dict(self.detail, id=entry_id)
 
+    def execute_command(self, command, **fields):
+        self.actions.append(("execute_command", command, fields))
+        return {"ok": True, "command": command}
+
+    def preview_retention(self, policy=None):
+        self.actions.append(("preview_retention", policy))
+        return {"entries_to_remove": 2, "bytes_to_release": 100, "transfer_entries_to_expire": 1}
+
+    def apply_retention(self, policy=None):
+        self.actions.append(("apply_retention", policy))
+        return {"ok": True}
+
+    def copy_again(self, entry_id):
+        self.actions.append(("copy_again", entry_id))
+        return {"ok": True, "entry_id": entry_id}
+
+    def download_files(self, entry_id, target_directory, filenames=None):
+        self.actions.append(("download_files", entry_id, target_directory, filenames))
+        return {"ok": True, "files": [], "downloaded_directory": target_directory}
+
+    def save_image(self, entry_id, target_path):
+        self.actions.append(("save_image", entry_id, target_path))
+        return {"ok": True, "path": target_path}
+
+    def open_folder(self, entry_id):
+        self.actions.append(("open_folder", entry_id))
+        return {"ok": True}
+
+    def copy_file_paths(self, entry_id):
+        self.actions.append(("copy_file_paths", entry_id))
+        return {"ok": True, "count": 1}
+
+    def clear_windows_clipboard(self):
+        self.actions.append(("clear_windows_clipboard",))
+        return {"ok": True}
+
 
 @pytest.fixture
 def sync_controller():
@@ -104,25 +137,74 @@ def sync_controller():
     return make
 
 
-# --- read-only guarantees -----------------------------------------------------
+# --- read-only / allow-listed gateway guarantees ---------------------------------
+
+# The complete IPC surface the UI may reach, expressed in one place. T6
+# widened T5's read-only allow-list with history commands, retention and
+# main-process actions; everything else stays forbidden.
+ALLOWED_IPC_METHODS = {
+    "ping",
+    "query",
+    "get_detail",
+    "execute_command",
+    "preview_retention",
+    "apply_retention",
+    "copy_again",
+    "download_files",
+    "save_image",
+    "open_folder",
+    "copy_file_paths",
+    "clear_windows_clipboard",
+}
 
 
 def test_gateway_allow_list_matches_design():
-    assert ALLOWED_ACTIONS == ("ping", "query", "get_detail")
+    assert set(ALLOWED_ACTIONS) == ALLOWED_IPC_METHODS
     gateway = ReadOnlyHistoryGateway(FakeGateway([]))
-    for method in FORBIDDEN_METHODS:
-        assert not hasattr(gateway, method)
+    for method in ALLOWED_IPC_METHODS:
+        assert hasattr(gateway, method)
+    # nothing beyond the allow-list and python internals is exposed
+    public = {name for name in dir(gateway) if not name.startswith("_")}
+    assert public <= ALLOWED_IPC_METHODS | {"client"}
 
 
-def test_ui_sources_never_call_mutation_methods():
-    """AST-level guard: docstrings may *mention* forbidden words, but no
-    expression in the UI layer may call the client's mutation plumbing."""
+def test_ui_sources_exclude_controller():
+    assert Path("src/history_ui/controller.py") in UI_SOURCES
+    assert len(UI_SOURCES) == 5
+
+
+def test_client_access_is_confined_to_gateway_and_entrypoint():
+    """Only two places may touch the IPC client: `controller.py` (the
+    allow-listed gateway) and `main.py` (the child-process composition root
+    that wires client events to the window). The window, detail views and
+    model must stay client-free, and the pure views must not even invoke
+    IPC method names directly."""
+    allowed = {"controller.py", "main.py"}
     for path in UI_SOURCES:
+        source = path.read_text(encoding="utf-8")
+        if path.name in allowed:
+            continue
+        assert "HistoryIpcClient" not in source, path
+        assert "history_ui.client" not in source, path
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                assert node.func.attr not in ALLOWED_IPC_METHODS, (
+                    f"{path}:{node.lineno} calls IPC method {node.func.attr} directly"
+                )
+
+
+def test_ui_views_only_call_client_methods_via_the_controller():
+    """AST guard: window/views/model/main never invoke IPC methods directly
+    (docstrings may mention them); controller.py is the single dispatcher."""
+    for path in UI_SOURCES:
+        if path.name == "controller.py":
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                assert node.func.attr not in FORBIDDEN_METHODS, (
-                    f"{path}:{node.lineno} calls forbidden mutation method {node.func.attr}"
+                assert node.func.attr not in ALLOWED_IPC_METHODS, (
+                    f"{path}:{node.lineno} calls IPC method {node.func.attr} directly"
                 )
 
 
@@ -308,6 +390,71 @@ def test_query_failure_before_first_page_shows_error_state(sync_controller):
     controller.start()
     assert "error" in states
     assert controller.failure and "pipe gone" in controller.failure
+
+
+# --- action dispatch (T6) ---------------------------------------------------------
+
+
+def _action_controller():
+    gateway = FakeGateway([{"entries": [row(1)], "has_more": False, "next_cursor": None}])
+    controller = HistoryController(ReadOnlyHistoryGateway(gateway), synchronous=True)
+    completed = []
+    failed = []
+    controller.action_completed.connect(
+        lambda name, result: completed.append((name, result))
+    )
+    controller.action_failed.connect(lambda name, message: failed.append((name, message)))
+    return controller, gateway, completed, failed
+
+
+def test_execute_action_dispatches_through_gateway_and_completes():
+    controller, gateway, completed, failed = _action_controller()
+    controller.execute_action("copy_again", {"entry_id": "entry-1"})
+    assert gateway.actions == [("copy_again", "entry-1")]
+    assert completed and completed[0][0] == "copy_again"
+    assert failed == []
+
+
+def test_execute_action_failure_is_surfaced_per_action():
+    controller, gateway, completed, failed = _action_controller()
+
+    def boom(entry_id):
+        raise RuntimeError("pipe gone")
+
+    controller._gateway.copy_again = boom
+    controller.execute_action("copy_again", {"entry_id": "entry-1"})
+    assert completed == []
+    assert failed and failed[0][0] == "copy_again" and "pipe gone" in failed[0][1]
+
+
+def test_execute_action_rejects_names_outside_the_allow_list():
+    controller, gateway, completed, failed = _action_controller()
+    for name in ("query", "get_detail", "ping", "factory_reset", "execute_arbitrary"):
+        controller.execute_action(name, {})
+    assert gateway.actions == []
+    assert len(failed) == 5
+    assert completed == []
+
+
+def test_execute_action_pin_routes_command_with_entry_id():
+    controller, gateway, _, _ = _action_controller()
+    controller.execute_action(
+        "execute_command", {"command": "pin_entry", "entry_id": "entry-1"}
+    )
+    assert gateway.actions == [("execute_command", "pin_entry", {"entry_id": "entry-1"})]
+
+
+def test_preview_and_apply_retention_round_trip():
+    controller, gateway, completed, _ = _action_controller()
+    controller.execute_action("preview_retention", {"policy": None})
+    assert gateway.actions[-1] == ("preview_retention", None)
+    assert completed[-1][1] == {
+        "entries_to_remove": 2,
+        "bytes_to_release": 100,
+        "transfer_entries_to_expire": 1,
+    }
+    controller.execute_action("apply_retention", {"policy": None})
+    assert gateway.actions[-1] == ("apply_retention", None)
 
 
 # --- window wiring (read-only smoke) ---------------------------------------------

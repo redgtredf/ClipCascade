@@ -12,6 +12,7 @@ from stomp_ws.stomp_manager import STOMPManager
 from p2p.p2p_manager import P2PManager
 from history import service as history_service
 from history import ipc as history_ipc
+from history.actions import HistoryActionExecutor
 from history_ui import launcher as history_launcher_mod
 
 if PLATFORM == WINDOWS:
@@ -44,6 +45,7 @@ class Application:
         self.history_sink = None
         self.history_ipc_server = None
         self.history_launcher = None
+        self.history_service = None
         try:
             self.log_file_path = os.path.join(
                 get_program_files_directory(), log_file_path
@@ -68,6 +70,7 @@ class Application:
             self.stomp_manager = STOMPManager(self.config, history_sink=self.history_sink)
             self.p2p_manager = P2PManager(self.config, history_sink=self.history_sink)
             self.cipher_manager = CipherManager(self.config)
+            self._attach_history_actions()
         except Exception as e:
             CustomDialog(
                 f"An error occurred during application initialization: {e}",
@@ -101,6 +104,7 @@ class Application:
 
             ipc_server = self._start_history_ipc_server(init_result.service)
             self.history_ipc_server = ipc_server
+            self.history_service = init_result.service
             self.history_launcher = history_launcher_mod.HistoryProcessLauncher(
                 ipc_server=ipc_server
             )
@@ -132,6 +136,33 @@ class Application:
                 "will be unavailable, clipboard history capture continues"
             )
             return None
+
+    def _attach_history_actions(self):
+        """Give the IPC server the main-process action executor (copy again,
+        downloads, folder open...). The managers are constructed after the
+        history stack, so this runs once both exist. Failure only costs the
+        window's action buttons, never capture or sync."""
+        try:
+            if self.history_ipc_server is None or self.history_service is None:
+                return
+
+            def managers():
+                found = []
+                for transport_manager in (self.stomp_manager, self.p2p_manager):
+                    clipboard_manager = getattr(transport_manager, "clipboard_manager", None)
+                    if clipboard_manager is not None:
+                        found.append(clipboard_manager)
+                return found
+
+            self.history_ipc_server.action_executor = HistoryActionExecutor(
+                self.history_service,
+                managers,
+            )
+        except Exception:
+            logging.exception(
+                "Failed to attach history actions; the history window will "
+                "be read-only, capture and sync continue"
+            )
 
     def setup_logging(self):
         LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"

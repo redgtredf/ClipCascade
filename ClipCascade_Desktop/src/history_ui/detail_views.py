@@ -10,11 +10,13 @@ metadata-only state instead of a broken preview.
 
 import base64
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
@@ -72,7 +74,13 @@ def _chip(text, object_name):
 
 
 class DetailPane(QStackedWidget):
-    """Right-hand pane. Pages: empty -> loading -> error -> content."""
+    """Right-hand pane. Pages: empty -> loading -> error -> content.
+
+    T6: state-appropriate action buttons fire `action_requested(name, extra)`
+    — the window owns the actual flows (dialogs, link policy, IPC dispatch).
+    """
+
+    action_requested = Signal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -123,6 +131,9 @@ class DetailPane(QStackedWidget):
             item = self._content_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Detach now (deleteLater alone waits for an event-loop tick,
+                # leaving stale buttons/labels as findChildren hits).
+                widget.setParent(None)
                 widget.deleteLater()
         payload_type = detail.get("payload_type", "text")
         title = TYPE_TITLES.get(payload_type, "Entry")
@@ -146,8 +157,60 @@ class DetailPane(QStackedWidget):
         builder(detail)
 
         self._content_layout.addStretch(1)
+        self._content_layout.insertWidget(self._content_layout.count() - 1, self._build_action_row(detail))
         self._content_scroll.setAccessibleName(f"{title} details")
         self.setCurrentIndex(PAGE_CONTENT)
+
+    # --- actions (T6) ---------------------------------------------------------
+
+    def _action_button(self, label, accessible_name, action, extra=None):
+        button = QPushButton(label)
+        button.setAccessibleName(accessible_name)
+        button.clicked.connect(
+            lambda _checked=False, a=action, e=extra: self.action_requested.emit(a, e)
+        )
+        return button
+
+    def _build_action_row(self, detail):
+        row = QWidget()
+        row.setObjectName("actionRow")
+        row.setAccessibleName("Entry actions")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, theme.SPACING_S, 0, 0)
+        layout.setSpacing(theme.SPACING_S)
+
+        payload_type = detail.get("payload_type", "text")
+        state = detail.get("file_state")
+        pinned = bool(detail.get("pinned"))
+
+        def add(button):
+            layout.addWidget(button)
+            return button
+
+        if payload_type == "text":
+            add(self._action_button("Copy again", "Copy this text to the clipboard again", "copy_again"))
+        elif payload_type == "link":
+            add(self._action_button("Copy link", "Copy this link to the clipboard again", "copy_again"))
+            add(self._action_button("Open in browser…", "Open this link in the default browser after confirmation", "open_link"))
+        elif payload_type == "image":
+            if detail.get("image_base64"):
+                add(self._action_button("Copy again", "Copy this image to the clipboard again", "copy_again"))
+                add(self._action_button("Save as…", "Save this image to a folder", "save_image"))
+        elif payload_type == "files":
+            if state == "ready":
+                add(self._action_button("Download all…", "Download all files in this batch to a folder", "download_all"))
+            elif state == "downloaded":
+                add(self._action_button("Open folder", "Open the folder where these files were saved", "open_folder"))
+                add(self._action_button("Copy file paths", "Copy the full paths of the downloaded files", "copy_file_paths"))
+
+        add(self._action_button(
+            "Unpin" if pinned else "Pin",
+            f"{'Remove this entry from pinned' if pinned else 'Keep this entry until unpinned'}",
+            "unpin" if pinned else "pin",
+        ))
+        add(self._action_button("Delete", "Delete this entry from history; downloaded files are kept", "delete"))
+        layout.addStretch(1)
+        return row
 
     @staticmethod
     def _meta_text(detail):
@@ -275,11 +338,24 @@ class DetailPane(QStackedWidget):
             )
 
         for item in files[:MAX_FILE_ROWS_SHOWN]:
-            row = QLabel(f"{item.get('name', '')} — {format_bytes(item.get('size_bytes', 0))}")
-            row.setTextFormat(Qt.TextFormat.PlainText)
-            row.setWordWrap(False)
-            row.setAccessibleName("File in batch")
-            self._content_layout.addWidget(row)
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(theme.SPACING_S)
+            name_label = QLabel(f"{item.get('name', '')} — {format_bytes(item.get('size_bytes', 0))}")
+            name_label.setTextFormat(Qt.TextFormat.PlainText)
+            name_label.setAccessibleName("File in batch")
+            row_layout.addWidget(name_label, stretch=1)
+            if state == "ready" and item.get("name"):
+                filename = item["name"]
+                save_one = self._action_button(
+                    "Save…",
+                    f"Save {filename} to a folder",
+                    "download_one",
+                    {"filename": filename},
+                )
+                row_layout.addWidget(save_one)
+            self._content_layout.addWidget(row_widget)
         if len(files) > MAX_FILE_ROWS_SHOWN:
             self._add_body_label(
                 f"… and {len(files) - MAX_FILE_ROWS_SHOWN} more files",

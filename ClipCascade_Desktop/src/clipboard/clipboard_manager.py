@@ -80,6 +80,10 @@ class ClipboardManager:
         # resulting local capture isn't recorded as a fresh duplicate.
         # Consumed (reset to None) by the next local capture attempt.
         self.history_origin_suppress_token: Optional[str] = None
+        # Copy-again companion: when set, the next monitor-triggered local
+        # send is swallowed too, so a history re-copy never resends over the
+        # network. Consumed together with the token above.
+        self.suppress_next_local_send: bool = False
         # dedup key -> monotonic timestamp of the last capture attempt seen
         # for that (payload_type, direction/source, canonical-content) tuple.
         self._history_dedup_cache: dict = {}
@@ -190,6 +194,14 @@ class ClipboardManager:
     def clipboard_to_base64(self, callback, content: any, type_: str = "text"):
         try:
             self.reset_files_download()
+
+            if self.suppress_next_local_send:
+                # This local copy originated from history "Copy again": the
+                # paste already happened, and neither a fresh capture nor a
+                # network resend may follow from the monitor observing it.
+                self.suppress_next_local_send = False
+                self.history_origin_suppress_token = None
+                return
 
             type_ = type_.lower()
             if type_ == "text":

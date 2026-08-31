@@ -1,30 +1,38 @@
-"""The three-pane read-only clipboard-history window.
+"""The three-pane clipboard-history window.
 
 Left: type/source filters with live counts. Middle: the virtualised entry
-list (QListView + HistoryListModel). Right: the read-only detail pane.
-Header: search (150 ms debounce). Footer: status totals, which double as the
-screen-reader live region.
+list (QListView + HistoryListModel). Right: the detail pane with
+state-appropriate actions. Header: search (150 ms debounce). Footer: status
+totals, which double as the screen-reader live region.
 
-Everything reaches the main process through the read-only gateway
-(`history_ui.controller.ReadOnlyHistoryGateway`): this window has no way to
-express a copy/open/download/pin/delete/clear/retention command, and the
-context menu is an inert placeholder until ticket T6. Geometry is restored
-from QSettings and clamped to visible monitors so the window can never come
-back off-screen.
+T6: every mutation is dispatched through the controller's gateway (the
+authenticated IPC channel) and executed in the main process -- this window
+process still never touches the clipboard, filesystem or store. Link
+opening validates through `link_policy`, confirms per untrusted hostname
+and opens via argument-safe OS APIs only. Geometry is restored from
+QSettings and clamped to visible monitors.
 """
 
-from PySide6.QtCore import QRect, Qt, QSettings, Slot
-from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
+import os
+
+from PySide6.QtCore import QRect, QSettings, Qt, QUrl, Slot
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QCheckBox,
+    QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QListView,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -32,11 +40,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from history_ui import theme
+from history_ui import link_policy, theme
 from history_ui.controller import HistoryController
 from history_ui.detail_views import DetailPane
 from history_ui.entry_model import (
     ENTRY_ID_ROLE,
+    PREVIEW_ROLE,
+    STATE_LABEL_ROLE,
     HistoryItemDelegate,
     HistoryListModel,
 )
@@ -72,6 +82,9 @@ class HistoryWindow(QMainWindow):
         self._painted = False
         self.focus_requests = 0
         self._restored_selection_done = False
+        self._current_detail = None
+        self._pending_retention_dialog = False
+        self._last_announcement = ""
 
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(*DEFAULT_SIZE)
@@ -177,6 +190,15 @@ class HistoryWindow(QMainWindow):
         self.order_button.setCheckable(True)
         self.order_button.toggled.connect(self._on_order_toggled)
         nav_layout.addWidget(self.order_button)
+
+        nav_layout.addSpacing(theme.SPACING_L)
+        self.retention_button = self._nav_button("Manage retention…", "Preview and apply history retention")
+        self.retention_button.clicked.connect(self._on_manage_retention)
+        nav_layout.addWidget(self.retention_button)
+        self.clear_button = self._nav_button("Clear history…", "Clear unpinned or all history entries")
+        self.clear_button.clicked.connect(self._on_clear_history)
+        nav_layout.addWidget(self.clear_button)
+
         nav_layout.addStretch(1)
         return nav
 
@@ -277,6 +299,7 @@ class HistoryWindow(QMainWindow):
         layout = QVBoxLayout(pane)
         layout.setContentsMargins(0, theme.SPACING_M, theme.SPACING_L, theme.SPACING_M)
         self.detail_pane = DetailPane()
+        self.detail_pane.action_requested.connect(self._on_action_requested)
         layout.addWidget(self.detail_pane)
         return pane
 
@@ -311,8 +334,10 @@ class HistoryWindow(QMainWindow):
         self.controller.status_changed.connect(self._on_status_changed)
         self.controller.announced.connect(self.live_region.setText)
         self.controller.detail_loading.connect(lambda _entry_id: self.detail_pane.show_loading())
-        self.controller.detail_loaded.connect(self.detail_pane.show_detail)
+        self.controller.detail_loaded.connect(self._on_detail_loaded)
         self.controller.detail_failed.connect(lambda _entry_id, message: self.detail_pane.show_error(message))
+        self.controller.action_completed.connect(self._on_action_completed)
+        self.controller.action_failed.connect(self._on_action_failed)
 
     def attach_controller(self, controller):
         """Late binding used by `history_ui.main` when the IPC client only
@@ -453,15 +478,220 @@ class HistoryWindow(QMainWindow):
             button.setText(f"{label} ({counts.get(value, 0)})")
             button.setAccessibleName(f"Source filter: {label}, {counts.get(value, 0)} entries")
 
-    # --- context menu skeleton (T6 owns real actions) -----------------------------
+    # --- actions (T6): dispatch, dialogs, context menu --------------------------
+
+    def _on_detail_loaded(self, detail):
+        self._current_detail = detail
+        self.detail_pane.show_detail(detail)
+
+    def _selected_entry_id(self):
+        index = self.list_view.currentIndex()
+        return index.data(ENTRY_ID_ROLE) if index.isValid() else None
+
+    @Slot(str, object)
+    def _on_action_requested(self, action, extra):
+        entry_id = self._selected_entry_id()
+        if entry_id is None or self.controller is None:
+            return
+        extra = extra or {}
+
+        if action == "copy_again":
+            self.controller.execute_action("copy_again", {"entry_id": entry_id})
+        elif action == "pin":
+            self.controller.execute_action(
+                "execute_command", {"command": "pin_entry", "entry_id": entry_id}
+            )
+        elif action == "unpin":
+            self.controller.execute_action(
+                "execute_command", {"command": "unpin_entry", "entry_id": entry_id}
+            )
+        elif action == "delete":
+            if self._confirm_delete():
+                self.controller.execute_action(
+                    "execute_command", {"command": "delete_entry", "entry_id": entry_id}
+                )
+        elif action == "open_link":
+            self._open_link(extra.get("url") or self._current_link_url())
+        elif action == "save_image":
+            self._save_image_as(entry_id)
+        elif action == "download_all":
+            self._download_files(entry_id, None)
+        elif action == "download_one":
+            self._download_files(entry_id, [extra.get("filename")])
+        elif action == "open_folder":
+            self.controller.execute_action("open_folder", {"entry_id": entry_id})
+        elif action == "copy_file_paths":
+            self.controller.execute_action("copy_file_paths", {"entry_id": entry_id})
+        else:
+            self._announce(f"Unsupported action: {action}")
+
+    def _current_link_url(self):
+        detail = self._current_detail or {}
+        if detail.get("payload_type") == "link":
+            return detail.get("url") or detail.get("preview", "")
+        return ""
+
+    def _current_model_row(self):
+        index = self.list_view.currentIndex()
+        if not index.isValid():
+            return None
+        return {
+            "entry_id": index.data(ENTRY_ID_ROLE),
+            "preview": index.data(PREVIEW_ROLE) or "",
+            "state_label": index.data(STATE_LABEL_ROLE),
+        }
+
+    def _confirm_delete(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("Delete entry")
+        box.setText("Delete this entry from history?")
+        box.setInformativeText("Files you already downloaded are not deleted.")
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def _open_link(self, raw_url):
+        check = link_policy.validate_link(raw_url)
+        if not check.ok:
+            self._announce("This entry is not a valid web link, so it was not opened.")
+            return
+        if not link_policy.is_trusted(self._settings, check.hostname):
+            dialog = LinkConfirmDialog(check, self)
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            if not accepted:
+                self._announce("Link opening cancelled.")
+                return
+            if dialog.trust_requested() and check.is_secure:
+                link_policy.set_trusted(self._settings, check.hostname)
+        QDesktopServices.openUrl(QUrl(check.url))
+
+    def _save_image_as(self, entry_id):
+        target, _filter = QFileDialog.getSaveFileName(
+            self, "Save image", os.path.join(os.path.expanduser("~"), "Pictures", "clipboard.png")
+        )
+        if not target:
+            self._announce("Image save cancelled.")
+            return
+        self.controller.execute_action(
+            "save_image", {"entry_id": entry_id, "target_path": target}
+        )
+
+    def _download_files(self, entry_id, filenames):
+        directory = QFileDialog.getExistingDirectory(self, "Download files to folder")
+        if not directory:
+            self._announce("Download cancelled.")
+            return
+        self.controller.execute_action(
+            "download_files",
+            {
+                "entry_id": entry_id,
+                "target_directory": directory,
+                "filenames": filenames,
+            },
+        )
+
+    def _on_manage_retention(self):
+        if self.controller is None:
+            return
+        self._pending_retention_dialog = True
+        self.controller.execute_action("preview_retention", {"policy": None})
+
+    def _on_clear_history(self):
+        if self.controller is None:
+            return
+        dialog = ClearHistoryDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._announce("Clear cancelled.")
+            return
+        command = "clear_all" if dialog.clear_all_selected() else "clear_unpinned"
+        self.controller.execute_action("execute_command", {"command": command})
+        if dialog.clear_clipboard_selected():
+            self.controller.execute_action("clear_windows_clipboard", {})
+
+    def _on_action_completed(self, action, result):
+        result = result if isinstance(result, dict) else {}
+        if action == "copy_again":
+            self._announce("Copied to the clipboard.")
+        elif action == "execute_command":
+            self._announce("Done.")
+        elif action == "download_files":
+            failed = [item["name"] for item in result.get("files", []) if not item.get("ok")]
+            saved = result.get("downloaded_directory", "")
+            if failed:
+                self._announce(
+                    f"Downloaded with problems: {', '.join(failed)} could not be written. Others saved to {saved}."
+                )
+            else:
+                self._announce(f"Files downloaded to {saved}.")
+        elif action == "save_image":
+            self._announce(f"Image saved to {result.get('path', '')}.")
+        elif action == "open_folder":
+            self._announce("Opened the downloaded files folder.")
+        elif action == "copy_file_paths":
+            self._announce("File paths copied to the clipboard.")
+        elif action == "clear_windows_clipboard":
+            self._announce("Windows clipboard cleared.")
+        elif action == "preview_retention":
+            self._show_retention_dialog(result)
+        elif action == "apply_retention":
+            self._announce(
+                "Retention applied: "
+                f"{result.get('entries_removed', 0)} entries removed, "
+                f"{result.get('transfer_entries_expired', 0)} file batches expired."
+            )
+
+    def _on_action_failed(self, action, message):
+        friendly = {
+            "not-found": "The entry no longer exists.",
+            "not-supported-for-files": "File batches are downloaded, not re-copied.",
+            "payload-unavailable": "The content is no longer available.",
+            "clipboard-unavailable": "The clipboard is not reachable right now.",
+            "invalid-state:expired": "This file batch has expired and can no longer be downloaded.",
+            "invalid-state:unavailable": "This file batch is unavailable.",
+            "directory-missing": "The saved folder no longer exists.",
+            "never-downloaded": "These files have not been downloaded yet.",
+            "unsafe-filename": "A file name was rejected as unsafe.",
+            "actions-unavailable": "Actions are unavailable in this session.",
+            "unsupported-platform": "This action is only available on Windows.",
+        }
+        text = friendly.get(message, f"{message}")
+        self._announce(f"{action} failed: {text}")
+
+    def _show_retention_dialog(self, impact):
+        if not self._pending_retention_dialog:
+            return
+        self._pending_retention_dialog = False
+        dialog = RetentionDialog(impact if impact else {}, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.controller.execute_action("apply_retention", {"policy": None})
+
+    def _announce(self, text):
+        self._last_announcement = text
+        self.live_region.setText(text)
 
     def build_context_menu(self):
-        """Inert placeholder: a menu with no actions that dispatch anything.
-        Ticket T6 replaces the body with copy/open/download/pin/delete."""
+        """Actions for the entry under the cursor, mirroring the detail pane."""
         menu = QMenu(self)
         menu.setObjectName("historyContextMenu")
-        placeholder = menu.addAction("Read-only view — actions arrive in a later release")
-        placeholder.setEnabled(False)
+        row = self._current_model_row()
+        if row is None or self.controller is None:
+            placeholder = menu.addAction("No entry selected")
+            placeholder.setEnabled(False)
+            return menu
+
+        preview = row["preview"].strip()
+        looks_like_link = bool(link_policy.validate_link(preview).ok) if preview else False
+        if looks_like_link:
+            menu.addAction("Copy link", lambda: self._on_action_requested("copy_again", None))
+            menu.addAction(
+                "Open in browser…", lambda: self._on_action_requested("open_link", {"url": preview})
+            )
+        else:
+            menu.addAction("Copy again", lambda: self._on_action_requested("copy_again", None))
+        if row["state_label"]:
+            menu.addAction("Open folder", lambda: self._on_action_requested("open_folder", None))
+        menu.addSeparator()
+        menu.addAction("Delete", lambda: self._on_action_requested("delete", None))
         return menu
 
     def _show_context_menu(self):
@@ -519,3 +749,155 @@ class HistoryWindow(QMainWindow):
         x = min(max(restored.left(), target.left()), target.right() - width + 1)
         y = min(max(restored.top(), target.top()), target.bottom() - height + 1)
         return QRect(x, y, width, height)
+
+
+class LinkConfirmDialog(QDialog):
+    """Per-hostname confirmation before a link is opened. Trust is only
+    offerable (and only grantable) for HTTPS."""
+
+    def __init__(self, check, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Open link in browser?")
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+
+        warning = QLabel("Open this link in your default browser?")
+        warning.setAccessibleName("Link confirmation question")
+        layout.addWidget(warning)
+
+        scheme_label = QLabel(
+            "Not encrypted (HTTP)" if not check.is_secure else "Encrypted (HTTPS)"
+        )
+        scheme_label.setObjectName("warningChip" if not check.is_secure else "secureChip")
+        layout.addWidget(scheme_label)
+
+        host = QLabel(f"Hostname: {check.hostname}")
+        host.setTextFormat(Qt.TextFormat.PlainText)
+        host.setAccessibleName("Link hostname")
+        layout.addWidget(host)
+
+        url_label = QLabel(check.url)
+        url_label.setTextFormat(Qt.TextFormat.PlainText)
+        url_label.setWordWrap(True)
+        url_label.setAccessibleName("Full link address")
+        layout.addWidget(url_label)
+
+        self._trust_checkbox = QCheckBox("Do not ask again for this hostname")
+        # The design allows silent re-opening for trusted HTTPS hostnames
+        # only; HTTP always warns.
+        self._trust_checkbox.setEnabled(check.is_secure)
+        self._trust_checkbox.setAccessibleName(
+            "Do not ask again for this hostname, available for HTTPS only"
+        )
+        layout.addWidget(self._trust_checkbox)
+
+        buttons = QHBoxLayout()
+        open_button = QPushButton("Open")
+        open_button.setDefault(True)
+        open_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        buttons.addStretch(1)
+        buttons.addWidget(open_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+    def trust_requested(self):
+        return self._trust_checkbox.isChecked()
+
+
+class ClearHistoryDialog(QDialog):
+    """Destructive clear flow: scope choice (unpinned default) plus the
+    opt-in current-Windows-clipboard clear (off by default)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Clear history")
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+
+        info = QLabel("Remove entries from the encrypted history on this PC.")
+        info.setAccessibleName("Clear history explanation")
+        layout.addWidget(info)
+
+        self._unpinned_radio = QListWidget()
+        self._unpinned_radio.setAccessibleName("Clear scope")
+        unpinned_item = QListWidgetItem("Clear unpinned entries (pinned are kept)")
+        all_item = QListWidgetItem("Clear ALL entries (including pinned)")
+        unpinned_item.setData(Qt.ItemDataRole.UserRole, "unpinned")
+        all_item.setData(Qt.ItemDataRole.UserRole, "all")
+        self._unpinned_radio.addItem(unpinned_item)
+        self._unpinned_radio.addItem(all_item)
+        self._unpinned_radio.setCurrentRow(0)
+        layout.addWidget(self._unpinned_radio)
+
+        self._clipboard_checkbox = QCheckBox("Also clear the current Windows clipboard")
+        self._clipboard_checkbox.setChecked(False)
+        self._clipboard_checkbox.setAccessibleName(
+            "Also clear the current Windows clipboard, off by default"
+        )
+        layout.addWidget(self._clipboard_checkbox)
+
+        note = QLabel("Files you already downloaded are never deleted.")
+        note.setObjectName("mutedLabel")
+        layout.addWidget(note)
+
+        buttons = QHBoxLayout()
+        clear_button = QPushButton("Clear")
+        clear_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setDefault(True)
+        cancel_button.clicked.connect(self.reject)
+        buttons.addStretch(1)
+        buttons.addWidget(clear_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+    def clear_all_selected(self):
+        item = self._unpinned_radio.currentItem()
+        return bool(item and item.data(Qt.ItemDataRole.UserRole) == "all")
+
+    def clear_clipboard_selected(self):
+        return self._clipboard_checkbox.isChecked()
+
+
+class RetentionDialog(QDialog):
+    """Retention impact preview, then apply-on-confirm. The numbers come
+    from the main process's preview; apply uses the same policy server-side
+    so preview and applied result are computed by the same engine."""
+
+    def __init__(self, impact, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("History retention")
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+
+        intro = QLabel(
+            "Applying retention now removes old unpinned entries and expires\n"
+            "stale file transfers. Pinned entries are always kept."
+        )
+        intro.setAccessibleName("Retention explanation")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        entries_removed = impact.get("entries_to_remove", 0)
+        bytes_released = impact.get("bytes_to_release", 0)
+        transfers_expired = impact.get("transfer_entries_to_expire", 0)
+        facts = QLabel(
+            f"Entries to remove: {entries_removed}\n"
+            f"Storage released: {bytes_released} bytes\n"
+            f"File batches to expire: {transfers_expired}"
+        )
+        facts.setAccessibleName("Retention impact numbers")
+        layout.addWidget(facts)
+
+        buttons = QHBoxLayout()
+        apply_button = QPushButton("Apply now")
+        apply_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setDefault(True)
+        cancel_button.clicked.connect(self.reject)
+        buttons.addStretch(1)
+        buttons.addWidget(apply_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
