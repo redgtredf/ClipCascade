@@ -11,3 +11,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env.bak-*
+
+# desktop runtime data — DPAPI master key + history db, never commit
+ClipCascade_Desktop/src/history/*.db
+ClipCascade_Desktop/src/history/*.db-shm
+ClipCascade_Desktop/src/history/*.db-wal
+ClipCascade_Desktop/src/history/master-key.dpapi
